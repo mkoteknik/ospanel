@@ -55,6 +55,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	cfH := handler.NewCFHandler(cfg.Logger)
 	olsH := handler.NewOLSHandler("http://localhost:7080")
 	cronH := handler.NewCronHandler(cfg.Logger)
+	totpH := handler.NewTOTPHandler(cfg.Store, cfg.Logger)
+	termH := handler.NewTerminalHandler(cfg.Logger)
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -78,6 +80,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/auth/logout", authH.Logout)
 			r.Put("/auth/password", authH.ChangePassword)
 			r.Put("/auth/2fa", authH.Setup2FA)
+
+			// 2FA (TOTP)
+			r.Get("/2fa/status", totpH.Status)
+			r.Post("/2fa/setup", totpH.Setup)
+			r.Post("/2fa/verify", totpH.Verify)
+			r.Delete("/2fa/disable", totpH.Disable)
 
 			// Domains
 			r.Get("/domains", domainH.List)
@@ -144,6 +152,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/containers/{id}/start", containerH.Start)
 			r.Post("/containers/{id}/stop", containerH.Stop)
 			r.Post("/containers/{id}/restart", containerH.Restart)
+
+			// Terminal + Logs
+			r.Get("/terminal/ws", termH.Connect)
+			r.Get("/logs", termH.LogList)
+			r.Get("/logs/view", termH.LogStream)
 
 			// Monitor
 			r.Get("/monitor/stats", monitorH.Stats)
