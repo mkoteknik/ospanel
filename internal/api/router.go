@@ -9,6 +9,8 @@ import (
 
 	"github.com/mkoteknik/ospanel/internal/adapter/cache"
 	"github.com/mkoteknik/ospanel/internal/adapter/container"
+	"github.com/mkoteknik/ospanel/internal/adapter/dns"
+	"github.com/mkoteknik/ospanel/internal/adapter/email"
 	"github.com/mkoteknik/ospanel/internal/adapter/ols"
 	"github.com/mkoteknik/ospanel/internal/api/handler"
 	apimw "github.com/mkoteknik/ospanel/internal/api/middleware"
@@ -40,7 +42,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Handler'ları oluştur
 	authH := handler.NewAuthHandler(cfg.Store, cfg.JWTSecret, cfg.Logger)
-	domainH := handler.NewDomainHandler(cfg.Store, cfg.Logger, cfg.OLS)
+	pdnsClient := dns.NewClient()
+	mailServer := email.NewMailServer()
+	domainH := handler.NewDomainHandler(cfg.Store, cfg.Logger, cfg.OLS, pdnsClient, mailServer, "127.0.0.1")
 	databaseH := handler.NewDatabaseHandler(cfg.Store, cfg.Logger)
 	fileH := handler.NewFileHandler(cfg.Store, cfg.Logger)
 	monitorH := handler.NewMonitorHandler(cfg.Logger)

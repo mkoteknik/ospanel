@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -8,6 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/mkoteknik/ospanel/internal/adapter/dns"
+	"github.com/mkoteknik/ospanel/internal/adapter/email"
 	"github.com/mkoteknik/ospanel/internal/adapter/ols"
 	"github.com/mkoteknik/ospanel/internal/adapter/system"
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
@@ -18,14 +22,17 @@ import (
 
 // DomainHandler domain yönetimi
 type DomainHandler struct {
-	store    store.Store
-	log      *logger.Logger
-	ols      *ols.Client
+	store     store.Store
+	log       *logger.Logger
+	ols       *ols.Client
+	pdns      *dns.Client
+	mail      *email.MailServer
+	serverIP  string
 }
 
 // NewDomainHandler yeni DomainHandler
-func NewDomainHandler(s store.Store, log *logger.Logger, olsClient *ols.Client) *DomainHandler {
-	return &DomainHandler{store: s, log: log, ols: olsClient}
+func NewDomainHandler(s store.Store, log *logger.Logger, olsClient *ols.Client, pdnsClient *dns.Client, mailServer *email.MailServer, serverIP string) *DomainHandler {
+	return &DomainHandler{store: s, log: log, ols: olsClient, pdns: pdnsClient, mail: mailServer, serverIP: serverIP}
 }
 
 // List kullanıcının domainlerini listeler
@@ -111,19 +118,35 @@ func (h *DomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// OLS'te vhost oluştur
+	vhostCreated := false
 	if h.ols != nil && h.ols.IsAvailable() {
 		if err := h.ols.CreateVHost(domain.Domain, docRoot, domain.PHPVersion); err != nil {
 			h.log.Warnw("OLS vhost oluşturulamadı", "error", err, "domain", req.Domain)
 		} else {
+			vhostCreated = true
 			h.log.Infow("OLS vhost oluşturuldu", "domain", req.Domain)
 		}
 	}
 
-	h.log.Infow("domain oluşturuldu", "domain", req.Domain, "user_id", userID, "docroot", docRoot)
+	// === OTOMASYON: DNS, Email, DKIM, SSL ===
+	autoResults := h.autoSetupDomain(req.Domain, user.Username, h.serverIP)
+
+	h.log.Infow("domain oluşturuldu", "domain", req.Domain, "user_id", userID, "docroot", docRoot,
+		"dns", autoResults["dns"], "email", autoResults["email"], "dkim", autoResults["dkim"])
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"domain":  domain,
-		"message": "Domain başarıyla oluşturuldu",
+		"domain":    domain,
+		"message":   "Domain başarıyla oluşturuldu",
+		"auto_setup": map[string]interface{}{
+			"vhost":      vhostCreated,
+			"dns_zone":   autoResults["dns"],
+			"email":      autoResults["email"],
+			"admin_email": autoResults["admin_email"],
+			"dkim":       autoResults["dkim"],
+			"spf":        autoResults["spf"],
+			"dmarc":      autoResults["dmarc"],
+			"ssl":        autoResults["ssl"],
+		},
 	})
 }
 
@@ -248,6 +271,101 @@ func (h *DomainHandler) InstallSSL(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"message": "SSL kurulumu başlatıldı - " + req.Type,
 	})
+}
+
+// autoSetupDomain domain için otomatik kurulum yapar: DNS, Email, DKIM, SPF, DMARC
+func (h *DomainHandler) autoSetupDomain(domain, username, serverIP string) map[string]interface{} {
+	results := map[string]interface{}{
+		"dns": false, "email": false, "admin_email": "", "dkim": false, "spf": false, "dmarc": false, "ssl": false,
+	}
+
+	adminEmail := "admin@" + domain
+	adminPass := generateRandomPass(16)
+
+	// 1. PowerDNS zone oluştur
+	if h.pdns != nil && h.pdns.IsAvailable() {
+		if err := h.pdns.CreateZone(domain); err == nil {
+			results["dns"] = true
+
+			// A kaydı @ → server IP
+			h.pdns.CreateRecord(domain, dns.Record{
+				Name: domain + ".", Type: "A", Content: serverIP, TTL: 3600,
+			})
+			// www CNAME
+			h.pdns.CreateRecord(domain, dns.Record{
+				Name: "www." + domain + ".", Type: "CNAME", Content: domain + ".", TTL: 3600,
+			})
+			// MX kaydı
+			h.pdns.CreateRecord(domain, dns.Record{
+				Name: domain + ".", Type: "MX", Content: "mail." + domain + ".", TTL: 3600, Prio: 10,
+			})
+			// mail A kaydı
+			h.pdns.CreateRecord(domain, dns.Record{
+				Name: "mail." + domain + ".", Type: "A", Content: serverIP, TTL: 3600,
+			})
+			// SPF
+			spfRecord := "v=spf1 mx a ip4:" + serverIP + " ~all"
+			h.pdns.CreateRecord(domain, dns.Record{
+				Name: domain + ".", Type: "TXT", Content: spfRecord, TTL: 3600,
+			})
+			results["spf"] = true
+
+			// DMARC
+			h.pdns.CreateRecord(domain, dns.Record{
+				Name: "_dmarc." + domain + ".", Type: "TXT",
+				Content: "v=DMARC1; p=quarantine; rua=mailto:" + adminEmail,
+				TTL: 3600,
+			})
+			results["dmarc"] = true
+
+			// CAA - Let's Encrypt yetkilendirme
+			h.pdns.CreateRecord(domain, dns.Record{
+				Name: domain + ".", Type: "CAA",
+				Content: "0 issue \"letsencrypt.org\"",
+				TTL: 3600,
+			})
+
+			h.log.Infow("PowerDNS zone ve kayitlar olusturuldu", "domain", domain)
+		}
+	}
+
+	// 2. Email domain ve admin hesabı
+	if h.mail != nil && h.mail.IsAvailable() {
+		if err := h.mail.CreateDomain(domain); err == nil {
+			results["email"] = true
+
+			if err := h.mail.CreateAccount(domain, adminEmail, adminPass, 1024); err == nil {
+				results["admin_email"] = adminEmail
+				h.log.Infow("admin email olusturuldu", "email", adminEmail)
+			}
+
+			// DKIM anahtarı oluştur
+			dkimKey, err := h.mail.GenerateDKIM(domain)
+			if err == nil && dkimKey != "" {
+				results["dkim"] = true
+				// DKIM TXT kaydını ekle (mail._domainkey)
+				h.pdns.CreateRecord(domain, dns.Record{
+					Name:    "mail._domainkey." + domain + ".",
+					Type:    "TXT",
+					Content: dkimKey,
+					TTL:     3600,
+				})
+			}
+		}
+	}
+
+	// 3. SSL sertifika bilgisi (Linux'ta certbot ile otomatik)
+	results["ssl"] = false // Linux sunucuda certbot/certificate ile aktif olacak
+	results["ssl_note"] = "Linux sunucuda Let's Encrypt otomatik kurulacak"
+
+	return results
+}
+
+// generateRandomPass rastgele şifre üretir
+func generateRandomPass(length int) string {
+	b := make([]byte, length)
+	rand.Read(b)
+	return hex.EncodeToString(b)[:length]
 }
 
 // isValidDomain basit domain validasyonu
