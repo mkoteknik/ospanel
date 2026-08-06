@@ -38,6 +38,7 @@ const menuItems = [
   { path: '/dns', label: '🔧 DNS' },
   { path: '/cron', label: '⏰ Cron Jobs' },
   { path: '/backup', label: '💾 Yedekleme' },
+  { path: '/services', label: '⚙️ Sistem' },
   { path: '/logs', label: '📋 Log Viewer' },
   { path: '/monitor', label: '📈 Monitoring' },
   { path: '/security', label: '🛡️ Güvenlik' },

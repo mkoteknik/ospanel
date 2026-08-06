@@ -57,6 +57,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	cronH := handler.NewCronHandler(cfg.Logger)
 	totpH := handler.NewTOTPHandler(cfg.Store, cfg.Logger)
 	termH := handler.NewTerminalHandler(cfg.Logger)
+	svcH := handler.NewServicesHandler(cfg.Logger)
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -162,6 +163,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			// Monitor
 			r.Get("/monitor/stats", monitorH.Stats)
 			r.Get("/monitor/ws", monitorH.LiveStats)
+
+			// System Services
+			r.Get("/services", svcH.List)
+			r.Post("/services/action", svcH.Action)
 
 			// Hostname (public - bilgi amaçlı)
 			r.Get("/server/hostname", adminH.GetHostname)
