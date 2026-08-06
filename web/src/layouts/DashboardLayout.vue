@@ -33,8 +33,8 @@ const menuItems = [
   <div class="dashboard-layout">
     <aside class="sidebar" :class="{ collapsed: !sidebarOpen }">
       <div class="sidebar-header">
-        <span v-if="sidebarOpen" class="logo">⚡ OSPanel</span>
-        <span v-else class="logo-sm">⚡</span>
+        <span v-if="sidebarOpen" class="logo"><img src="/logo.png" alt="OSPanel" class="logo-img" /> OSPanel</span>
+        <span v-else class="logo-sm"><img src="/logo.png" alt="OSPanel" class="logo-img-sm" /></span>
       </div>
       <nav class="sidebar-nav">
         <a
@@ -47,6 +47,9 @@ const menuItems = [
           {{ sidebarOpen ? item.label : item.label.split(' ')[0] }}
         </a>
       </nav>
+      <div v-if="sidebarOpen" class="sidebar-footer">
+        <img src="/logo.png" alt="OSPanel" class="sidebar-logo" />
+      </div>
     </aside>
 
     <div class="main-area">
@@ -95,8 +98,10 @@ const menuItems = [
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
-.logo { font-size: 20px; font-weight: 700; }
-.logo-sm { font-size: 24px; }
+.logo { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.logo-sm { display: flex; align-items: center; }
+.logo-img { width: 28px; height: 28px; }
+.logo-img-sm { width: 28px; height: 28px; }
 
 .sidebar-nav {
   display: flex;
@@ -173,6 +178,20 @@ const menuItems = [
 }
 
 .logout-btn:hover { background: #c0392b; }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px;
+  text-align: center;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar-logo {
+  width: 100%;
+  max-width: 140px;
+  height: auto;
+  opacity: 0.9;
+}
 
 .content {
   flex: 1;

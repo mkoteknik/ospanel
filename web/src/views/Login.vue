@@ -49,8 +49,7 @@ async function quickLogin() {
 <template>
   <div class="login-page">
     <div class="login-card">
-      <h1>⚡ OpenSpeed Panel</h1>
-      <p class="subtitle">Modern Hosting Kontrol Paneli</p>
+      <img src="/logo.png" alt="OpenSpeed Panel" class="login-logo" /><p class="subtitle">Modern Hosting Kontrol Paneli</p>
 
       <form @submit.prevent="handleLogin" class="login-form">
         <div class="form-group">
@@ -104,11 +103,18 @@ async function quickLogin() {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
-h1 {
-  margin: 0;
-  text-align: center;
-  font-size: 28px;
-  color: #1a1a2e;
+.login-logo {
+  display: block;
+  width: 120px;
+  height: auto;
+  margin: 0 auto 16px;
+}
+
+.login-logo {
+  display: block;
+  width: 150px;
+  height: auto;
+  margin: 0 auto 20px;
 }
 
 .subtitle {

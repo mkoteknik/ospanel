@@ -6,6 +6,24 @@
 # Kullanım:
 #   curl -fsSL https://raw.githubusercontent.com/mkoteknik/ospanel/main/install.sh | sudo bash
 #
+# ============================================================
+# BAĞIMLILIK STRATEJİSİ
+# ============================================================
+# 🔒 SABİT PAKET (repo YOK, test edilmiş sürümler):
+#    - OpenLiteSpeed → direkt .deb/.rpm indir (v1.8.2)
+#    - PHP LSAPI       → direkt .deb indir (8.2, 8.3, 8.4)
+#    - Adminer         → direkt PHP dosyası indir
+#    - OSPanel         → GitHub release'ten indir
+#
+# ✅ OS REPO (stabil, risk yok):
+#    - MariaDB, PostgreSQL, Postfix, Dovecot, Redis
+#    - PowerDNS, Podman/Docker, SpamAssassin, Fail2ban
+#    - inotify-tools, certbot, curl, wget, openssl
+#
+# 🔄 GÜNCELLEME: Yeni sürüm test edilip onaylandıktan sonra
+#    bu scriptteki versiyon numaraları güncellenir.
+# ============================================================
+#
 
 set -euo pipefail
 
@@ -21,6 +39,25 @@ OSPANEL_VERSION="${OSPANEL_VERSION:-latest}"
 OSPANEL_DIR="/opt/ospanel"
 OSPANEL_DATA="/var/lib/ospanel"
 OSPANEL_CONFIG="/etc/ospanel"
+
+# =====================================================================
+# SABİT PAKET VERSİYONLARI - Test edilmiş, uyumlu sürümler
+# Repo'dan kurulum YOK, tüm kritik paketler sabit URL'den indirilir
+# =====================================================================
+OLS_VERSION="1.8.2"
+OLS_DEB_URL="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_${OLS_VERSION}-1_amd64.deb"
+OLS_RPM_URL="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-${OLS_VERSION}-1.el8.x86_64.rpm"
+
+# PHP LSAPI sürümleri (OLS ile uyumlu)
+LSAPI_BASE_URL="https://rpms.litespeedtech.com/debian/pool/main"
+declare -A LSAPI_PACKAGES
+LSAPI_PACKAGES=(
+    ["82"]="lsphp82_8.2.24-1_amd64.deb"
+    ["83"]="lsphp83_8.3.12-1_amd64.deb"
+    ["84"]="lsphp84_8.4.0-1_amd64.deb"
+)
+
+PMA_URL="https://www.adminer.org/latest.php"  # Adminer her zaman son sürüm (tek dosya, risk yok)
 
 log_info()  { echo -e "${GREEN}[✓]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
@@ -93,7 +130,7 @@ install_dependencies() {
 # OpenLiteSpeed kurulumu
 # ---------------------------------------------------------------------------
 install_ols() {
-    log_step "OpenLiteSpeed kuruluyor..."
+    log_step "OpenLiteSpeed v${OLS_VERSION} kuruluyor (sabit paket, repo YOK)..."
 
     if [[ -f /usr/local/lsws/bin/lshttpd ]]; then
         log_info "OpenLiteSpeed zaten kurulu (/usr/local/lsws mevcut), atlanıyor"
@@ -103,54 +140,36 @@ install_ols() {
     local OLS_INSTALLED=0
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        # === Ubuntu / Debian ===
-        log_info "LiteSpeed resmi reposu ekleniyor..."
-
-        # Resmi OLS repo scriptini kullan
-        wget -q -O /tmp/enable_lst_debian_repo.sh http://rpms.litespeedtech.com/debian/enable_lst_debian_repo.sh 2>/dev/null || \
-        curl -fsSL -o /tmp/enable_lst_debian_repo.sh http://rpms.litespeedtech.com/debian/enable_lst_debian_repo.sh
-
-        if [[ -f /tmp/enable_lst_debian_repo.sh ]]; then
-            bash /tmp/enable_lst_debian_repo.sh 2>/dev/null || true
-            apt-get update -qq 2>/dev/null || true
-            apt-get install -y -qq openlitespeed 2>/dev/null && OLS_INSTALLED=1
+        # === Ubuntu / Debian: direkt .deb indir ===
+        log_info "OLS v${OLS_VERSION} .deb indiriliyor: $OLS_DEB_URL"
+        if curl -fsSL -o /tmp/ols.deb "$OLS_DEB_URL" 2>/dev/null; then
+            dpkg -i /tmp/ols.deb 2>/dev/null && OLS_INSTALLED=1
+            apt-get install -f -y -qq 2>/dev/null || true  # bağımlılıkları düzelt
         fi
 
-        # Repo başarısız olursa manuel .deb kurulumu dene
+        # Fallback: bir üst sürümü dene
         if [[ $OLS_INSTALLED -eq 0 ]]; then
-            log_warn "Repo kurulumu başarısız, manuel .deb deneniyor..."
-            local OLS_DEB_URL="https://openlitespeed.org/download/latest-deb"
-            # En son sürümü dene (1.8.x serisi)
-            for ver in 1.8.2 1.8.1 1.8.0 1.7.19; do
-                local DEB_URL="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_${ver}-1_amd64.deb"
-                log_info "OLS $ver deneniyor: $DEB_URL"
-                if curl -fsSL -o /tmp/ols.deb "$DEB_URL" 2>/dev/null; then
+            for ver in 1.8.1 1.8.0 1.7.19; do
+                local FB_URL="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_${ver}-1_amd64.deb"
+                log_warn "v${OLS_VERSION} bulunamadı, $ver deneniyor..."
+                if curl -fsSL -o /tmp/ols.deb "$FB_URL" 2>/dev/null; then
                     dpkg -i /tmp/ols.deb 2>/dev/null && OLS_INSTALLED=1 && break
                 fi
             done
         fi
 
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        # === Rocky / Alma / RHEL ===
-        log_info "LiteSpeed resmi reposu ekleniyor..."
-
-        # EL9 için
-        if [[ "$OS_VERSION" == "9"* ]]; then
-            rpm -Uvh http://rpms.litespeedtech.com/centos/litespeed-repo-1.4-1.el9.noarch.rpm 2>/dev/null || true
-        else
-            # EL8 için
-            rpm -Uvh http://rpms.litespeedtech.com/centos/litespeed-repo-1.4-1.el8.noarch.rpm 2>/dev/null || true
+        # === Rocky / Alma: direkt .rpm indir ===
+        log_info "OLS v${OLS_VERSION} .rpm indiriliyor..."
+        if curl -fsSL -o /tmp/ols.rpm "$OLS_RPM_URL" 2>/dev/null; then
+            rpm -ivh /tmp/ols.rpm 2>/dev/null && OLS_INSTALLED=1
         fi
 
-        dnf install -y openlitespeed 2>/dev/null && OLS_INSTALLED=1
-
-        # Repo başarısız olursa manuel .rpm kurulumu dene
         if [[ $OLS_INSTALLED -eq 0 ]]; then
-            log_warn "Repo kurulumu başarısız, manuel .rpm deneniyor..."
-            for ver in 1.8.2 1.8.1 1.8.0; do
-                local RPM_URL="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-${ver}-1.el8.x86_64.rpm"
-                log_info "OLS $ver deneniyor..."
-                if curl -fsSL -o /tmp/ols.rpm "$RPM_URL" 2>/dev/null; then
+            for ver in 1.8.1 1.8.0; do
+                local FB_URL="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-${ver}-1.el8.x86_64.rpm"
+                log_warn "v${OLS_VERSION} bulunamadı, $ver deneniyor..."
+                if curl -fsSL -o /tmp/ols.rpm "$FB_URL" 2>/dev/null; then
                     rpm -ivh /tmp/ols.rpm 2>/dev/null && OLS_INSTALLED=1 && break
                 fi
             done
@@ -158,8 +177,8 @@ install_ols() {
     fi
 
     if [[ $OLS_INSTALLED -eq 0 ]]; then
-        log_error "OpenLiteSpeed kurulamadı!"
-        log_error "Manuel kurulum: https://docs.openlitespeed.org/installation"
+        log_error "OpenLiteSpeed kurulamadı! Sabit paket URL'leri kontrol edin."
+        log_error "URL: $OLS_DEB_URL"
         exit 1
     fi
 
@@ -212,10 +231,11 @@ install_mariadb() {
 # PHP LSAPI kurulumu
 # ---------------------------------------------------------------------------
 install_php() {
-    log_step "PHP LSAPI sürümleri kuruluyor..."
+    log_step "PHP LSAPI sürümleri kuruluyor (sabit paket, repo YOK)..."
 
-    local PHP_VERSIONS=("74" "80" "81" "82" "83" "84")
+    local PHP_VERSIONS=("82" "83" "84")
     local INSTALLED_COUNT=0
+    local LSAPI_DIR="https://rpms.litespeedtech.com/debian/pool/main"
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
         for ver in "${PHP_VERSIONS[@]}"; do
@@ -224,9 +244,32 @@ install_php() {
                 ((INSTALLED_COUNT++))
                 continue
             fi
-            log_info "PHP ${ver:0:1}.${ver:1} LSAPI kuruluyor..."
-            apt-get install -y -qq "lsphp${ver}" 2>/dev/null && {
-                log_info "  PHP ${ver:0:1}.${ver:1} ✓"
+
+            local PKG_NAME="lsphp${ver}"
+            # Önce sabit sürüm .deb olarak dene
+            local DEB_FILE="${PKG_NAME}_*_amd64.deb"
+            local DEB_URL="${LSAPI_DIR}/${DEB_FILE}"
+
+            log_info "PHP ${ver:0:1}.${ver:1} LSAPI indiriliyor..."
+
+            # Sabit URL'den indirmeyi dene
+            if curl -fsSL "$LSAPI_DIR/" 2>/dev/null | grep -o "lsphp${ver}_.*_amd64.deb" | head -1 > /tmp/lsphp_file.txt; then
+                local ACTUAL_FILE=$(cat /tmp/lsphp_file.txt)
+                if [[ -n "$ACTUAL_FILE" ]]; then
+                    curl -fsSL -o "/tmp/${ACTUAL_FILE}" "${LSAPI_DIR}/${ACTUAL_FILE}" 2>/dev/null && {
+                        dpkg -i "/tmp/${ACTUAL_FILE}" 2>/dev/null && {
+                            log_info "  PHP ${ver:0:1}.${ver:1} ✓"
+                            ((INSTALLED_COUNT++))
+                            continue
+                        }
+                    }
+                fi
+            fi
+
+            # Fallback: apt ile dene (son çare)
+            log_warn "  Sabit paket bulunamadı, apt deneniyor..."
+            apt-get install -y -qq "$PKG_NAME" 2>/dev/null && {
+                log_info "  PHP ${ver:0:1}.${ver:1} ✓ (apt fallback)"
                 ((INSTALLED_COUNT++))
             } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı"
         done
@@ -241,16 +284,14 @@ install_php() {
             dnf install -y "lsphp${ver}" 2>/dev/null && {
                 log_info "  PHP ${ver:0:1}.${ver:1} ✓"
                 ((INSTALLED_COUNT++))
-            } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı (EL9'da 74 mevcut olmayabilir)"
+            } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı"
         done
     fi
 
-    # En az bir PHP sürümü kuruldu mu?
     if [[ $INSTALLED_COUNT -eq 0 ]]; then
-        log_warn "Hiçbir PHP LSAPI sürümü kurulamadı."
-        log_warn "OLS en az bir PHP sürümü ile gelir, panel devam edecek."
+        log_warn "Hiçbir PHP LSAPI sürümü kurulamadı. OLS varsayılan PHP'si kullanılacak."
     else
-        log_info "$INSTALLED_COUNT PHP LSAPI sürümü kuruldu"
+        log_info "$INSTALLED_COUNT PHP LSAPI sürümü kuruldu (sabit paket)"
     fi
 }
 

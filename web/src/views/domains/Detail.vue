@@ -208,12 +208,12 @@ watch(() => route.params.id, () => { domainId.value = Number(route.params.id); l
         <!-- PHP Sürümü -->
         <div class="section">
           <h3>🐘 PHP Sürümü</h3>
-          <div class="php-selector">
-            <button v-for="v in ['7.4','8.0','8.1','8.2','8.3','8.4']" :key="v"
-              :class="'php-btn ' + (domain.php_version === v ? 'active' : '')"
-              :disabled="changingPHP"
-              @click="changePHP(v)"
-            >PHP {{ v }}</button>
+          <div class="php-select-wrapper">
+            <select :value="domain.php_version" @change="changePHP(($event.target as HTMLSelectElement).value)" :disabled="changingPHP" class="php-dropdown">
+              <option value="8.4">PHP 8.4 (En Güncel)</option>
+              <option value="8.3">PHP 8.3 (Önerilen)</option>
+              <option value="8.2">PHP 8.2</option>
+            </select>
           </div>
         </div>
 
@@ -261,7 +261,7 @@ watch(() => route.params.id, () => { domainId.value = Number(route.params.id); l
             <span style="font-size:14px;color:#888">.{{ domain.domain }}</span>
           </div>
           <select v-model="newSub.php_version" style="flex:1">
-            <option v-for="v in ['7.4','8.0','8.1','8.2','8.3','8.4']" :key="v" :value="v">PHP {{ v }}</option>
+            <option v-for="v in ['8.4','8.3','8.2']" :key="v" :value="v">PHP {{ v }}</option>
           </select>
           <button class="btn-add-sm" @click="createSubdomain">Oluştur</button>
           <button class="btn-cancel-sm" @click="showCreateSub = false">İptal</button>
@@ -409,11 +409,10 @@ watch(() => route.params.id, () => { domainId.value = Number(route.params.id); l
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .section-header h3 { margin: 0; }
 
-.php-selector { display: flex; gap: 8px; flex-wrap: wrap; }
-.php-btn { padding: 10px 18px; border: 2px solid #e0e0e0; background: white; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-.php-btn.active { border-color: #0f3460; background: #0f3460; color: white; }
-.php-btn:hover:not(.active):not(:disabled) { border-color: #0f3460; }
-.php-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.php-select-wrapper { max-width: 300px; }
+.php-dropdown { width: 100%; padding: 10px 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; font-weight: 600; background: white; cursor: pointer; }
+.php-dropdown:focus { outline: none; border-color: #0f3460; }
+.php-dropdown:disabled { opacity: 0.5; cursor: not-allowed; background: #f5f5f5; }
 
 .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .info-item { display: flex; flex-direction: column; gap: 4px; padding: 12px; background: #f8f9fa; border-radius: 8px; }

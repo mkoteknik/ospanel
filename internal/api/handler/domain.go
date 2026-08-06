@@ -462,8 +462,6 @@ func isValidDomain(domain string) bool {
 
 // isValidPHPVersion geçerli PHP sürümü mü?
 func isValidPHPVersion(v string) bool {
-	valid := map[string]bool{
-		"7.4": true, "8.0": true, "8.1": true, "8.2": true, "8.3": true, "8.4": true,
-	}
+	valid := map[string]bool{"8.2": true, "8.3": true, "8.4": true}
 	return valid[v]
 }
