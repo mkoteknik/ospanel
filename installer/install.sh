@@ -742,6 +742,48 @@ install_container_runtime() {
 }
 
 # ---------------------------------------------------------------------------
+# .htaccess Watchdog kurulumu
+# ---------------------------------------------------------------------------
+install_htaccess_watchdog() {
+    log_step ".htaccess Watchdog kuruluyor..."
+
+    if ! command -v inotifywait &>/dev/null; then
+        if [[ "$PKG_MANAGER" == "apt" ]]; then
+            apt-get install -y -qq inotify-tools 2>/dev/null || true
+        elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+            dnf install -y inotify-tools 2>/dev/null || true
+        fi
+    fi
+
+    # Watchdog scriptini kopyala
+    cp /opt/ospanel/htaccess-watchdog.sh /usr/local/bin/ospanel-htaccess-watchdog 2>/dev/null || true
+    chmod +x /usr/local/bin/ospanel-htaccess-watchdog 2>/dev/null || true
+
+    # systemd servis
+    cat > /etc/systemd/system/ospanel-htaccess-watchdog.service << 'WDSVCEOF'
+[Unit]
+Description=OpenSpeed Panel .htaccess Watchdog
+After=network.target lsws.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ospanel-htaccess-watchdog
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+WDSVCEOF
+
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl enable ospanel-htaccess-watchdog 2>/dev/null || true
+    systemctl restart ospanel-htaccess-watchdog 2>/dev/null || true
+
+    log_info ".htaccess Watchdog kuruldu - OLS otomatik reload aktif"
+    log_info "İzlenen: /home/**/.htaccess → değişiklik → OLS graceful restart"
+}
+
+# ---------------------------------------------------------------------------
 # Fail2ban konfigürasyonu
 # ---------------------------------------------------------------------------
 configure_fail2ban() {
@@ -982,6 +1024,7 @@ main() {
     install_service
     configure_firewall
     configure_fail2ban
+    install_htaccess_watchdog
     create_admin_user
 
     # IP adresini al
@@ -1006,6 +1049,7 @@ main() {
     echo "║  ✅ Redis Cache (256MB)                          ║"
     echo "║  ✅ Podman/Docker (opsiyonel)                    ║"
     echo "║  ✅ Fail2ban                                     ║"
+    echo "║  ✅ .htaccess Watchdog (inotify + OLS reload)    ║"
     echo "║                                                  ║"
     echo "║  🔧 Servis Yönetimi:                             ║"
     echo "║  systemctl start|stop|restart ospanel            ║"

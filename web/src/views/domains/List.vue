@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
+
+const router = useRouter()
 
 interface Domain {
   id: number
@@ -17,8 +20,6 @@ const domains = ref<Domain[]>([])
 const loading = ref(true)
 const error = ref('')
 const showCreate = ref(false)
-const showDetail = ref(false)
-const selectedDomain = ref<Domain | null>(null)
 const newDomain = ref({ domain: '', php_version: '8.3' })
 const creating = ref(false)
 const deleting = ref<number | null>(null)
@@ -75,8 +76,7 @@ async function deleteDomain(domain: Domain) {
 }
 
 function viewDetail(domain: Domain) {
-  selectedDomain.value = domain
-  showDetail.value = true
+  router.push('/domains/' + domain.id)
 }
 
 function getStatusBadge(status: string) {
@@ -192,61 +192,6 @@ onMounted(loadDomains)
       </div>
     </div>
 
-    <!-- Detail Modal -->
-    <div v-if="showDetail && selectedDomain" class="modal-overlay" @click.self="showDetail = false">
-      <div class="modal modal-lg">
-        <div class="modal-header">
-          <h3>🌐 {{ selectedDomain.domain }}</h3>
-          <button class="modal-close" @click="showDetail = false">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="detail-grid">
-            <div class="detail-item">
-              <span class="detail-label">Domain</span>
-              <span class="detail-value">{{ selectedDomain.domain }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Document Root</span>
-              <span class="detail-value">{{ selectedDomain.document_root }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">PHP Sürümü</span>
-              <span class="detail-value">{{ selectedDomain.php_version }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">SSL</span>
-              <span class="detail-value">{{ selectedDomain.ssl_enabled ? 'Aktif' : 'Yok' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">HTTPS Zorunlu</span>
-              <span class="detail-value">{{ selectedDomain.force_https ? 'Evet' : 'Hayır' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Durum</span>
-              <span :class="'badge ' + getStatusBadge(selectedDomain.status).class">
-                {{ getStatusBadge(selectedDomain.status).text }}
-              </span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Oluşturma</span>
-              <span class="detail-value">{{ selectedDomain.created_at }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Site URL</span>
-              <a :href="'http://' + selectedDomain.domain" target="_blank" class="link">
-                http://{{ selectedDomain.domain }} ↗
-              </a>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-danger" @click="deleteDomain(selectedDomain); showDetail = false">
-            🗑️ Domaini Sil
-          </button>
-          <button class="btn-cancel" @click="showDetail = false">Kapat</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 

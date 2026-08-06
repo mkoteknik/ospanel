@@ -26,6 +26,11 @@ const router = createRouter({
           component: () => import('@/views/domains/List.vue'),
         },
         {
+          path: 'domains/:id',
+          name: 'DomainDetail',
+          component: () => import('@/views/domains/Detail.vue'),
+        },
+        {
           path: 'email',
           name: 'Email',
           component: () => import('@/views/email/List.vue'),
