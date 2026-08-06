@@ -191,6 +191,29 @@ install_ols() {
         }
     }
 
+    # Port 80 ve 443 listener'larını ekle (varsayılan OLS sadece 8088'de dinler)
+    log_info "OLS port 80/443 yapılandırılıyor..."
+    if ! grep -q "listener HTTP" /usr/local/lsws/conf/httpd_config.conf 2>/dev/null; then
+        sed -i 's|listeners                Default|listeners                Default, HTTP, HTTPS|' /usr/local/lsws/conf/httpd_config.conf 2>/dev/null || true
+        cat >> /usr/local/lsws/conf/httpd_config.conf << 'LSWSCONF'
+
+listener HTTP{
+    address                 *:80
+    secure                  0
+    map                     Example *
+}
+listener HTTPS{
+    address                 *:443
+    secure                  0
+    map                     Example *
+}
+LSWSCONF
+        log_info "Port 80/443 listener eklendi"
+    fi
+
+    # Full restart (graceful yetmez)
+    systemctl restart lsws 2>/dev/null || /usr/local/lsws/bin/lshttpd -k restart 2>/dev/null || true
+
     log_info "OpenLiteSpeed başarıyla kuruldu ve başlatıldı"
 }
 

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<virtualHostConfig>
+  <docRoot>$VH_ROOT</docRoot>
+  <enableGzip>1</enableGzip>
+  <index>
+    <useServer>1</useServer>
+    <indexFiles>index.html,index.htm,index.php</indexFiles>
+  </index>
+  <accessControl>
+    <allow>*</allow>
+  </accessControl>
+  <scriptHandlerList>
+    <scriptHandler>
+      <suffix>php</suffix>
+      <type>lsapi</type>
+      <handler>lsphp83</handler>
+    </scriptHandler>
+  </scriptHandlerList>
+  <rewrite>
+    <enable>1</enable>
+    <autoLoadHtaccess>1</autoLoadHtaccess>
+  </rewrite>
+  <accessLog>
+    <fileName>$VH_ROOT/logs/access.log</fileName>
+    <rollingSize>10M</rollingSize>
+    <keepDays>30</keepDays>
+  </accessLog>
+</virtualHostConfig>
