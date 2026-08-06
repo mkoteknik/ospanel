@@ -36,6 +36,7 @@ const menuItems = [
   { path: '/files', label: '📁 Dosyalar' },
   { path: '/ssl', label: '🔒 SSL' },
   { path: '/dns', label: '🔧 DNS' },
+  { path: '/cron', label: '⏰ Cron Jobs' },
   { path: '/backup', label: '💾 Yedekleme' },
   { path: '/monitor', label: '📈 Monitoring' },
   { path: '/security', label: '🛡️ Güvenlik' },

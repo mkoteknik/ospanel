@@ -54,6 +54,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	deployH := handler.NewDeployHandler(cfg.Logger)
 	cfH := handler.NewCFHandler(cfg.Logger)
 	olsH := handler.NewOLSHandler("http://localhost:7080")
+	cronH := handler.NewCronHandler(cfg.Logger)
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -126,6 +127,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/ols/info", olsH.LoginInfo)
 			r.Get("/ols/proxy", olsH.Proxy)
 			r.Handle("/ols/*", http.StripPrefix("/ols", http.HandlerFunc(olsH.Proxy)))
+
+			// Cron Jobs
+			r.Get("/cron", cronH.List)
+			r.Post("/cron", cronH.Add)
+			r.Delete("/cron", cronH.Delete)
 
 			// Deploy (One-click)
 			r.Get("/deploy/templates", deployH.ListTemplates)

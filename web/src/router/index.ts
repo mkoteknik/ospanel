@@ -76,6 +76,11 @@ const router = createRouter({
           component: () => import('@/views/cache/List.vue'),
         },
         {
+          path: 'cron',
+          name: 'CronJobs',
+          component: () => import('@/views/cron/List.vue'),
+        },
+        {
           path: 'cloudflare',
           name: 'CloudFlare',
           component: () => import('@/views/cloudflare/List.vue'),
