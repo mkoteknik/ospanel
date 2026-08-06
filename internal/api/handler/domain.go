@@ -405,6 +405,7 @@ func generateRandomPass(length int) string {
 // CreateSubdomain alt domain oluşturur
 func (h *DomainHandler) CreateSubdomain(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.GetUserID(r.Context())
+	parentID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 
 	var req model.CreateSubdomainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -412,10 +413,13 @@ func (h *DomainHandler) CreateSubdomain(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// URL'den gelen parent_id'yi kullan
+	req.ParentID = parentID
+
 	// Parent domain'i bul
 	parent, err := h.store.GetDomain(r.Context(), req.ParentID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Ana domain bulunamadı"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Ana domain bulunamadı: " + err.Error()})
 		return
 	}
 
