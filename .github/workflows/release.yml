@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Frontend
+        run: cd web && npm ci && npm run build
+
+      - name: Build Backend (amd64)
+        run: |
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w \
+            -X 'main.Version=${GITHUB_REF#refs/tags/v}' \
+            -X 'main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)' \
+            -X 'main.GitCommit=${GITHUB_SHA::7}'" \
+            -o build/ospanel-linux-amd64 ./cmd/ospanel/
+
+      - name: Build Backend (arm64)
+        run: |
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w \
+            -X 'main.Version=${GITHUB_REF#refs/tags/v}' \
+            -X 'main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)' \
+            -X 'main.GitCommit=${GITHUB_SHA::7}'" \
+            -o build/ospanel-linux-arm64 ./cmd/ospanel/
+
+      - name: Package
+        run: |
+          cd build
+          tar czf ospanel-linux-amd64.tar.gz ospanel-linux-amd64
+          tar czf ospanel-linux-arm64.tar.gz ospanel-linux-arm64
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OpenSpeed Panel ${{ github.ref_name }}
+          body: |
+            ## 🚀 OpenSpeed Panel ${{ github.ref_name }}
+
+            ### 📦 İndirme
+            - `ospanel-linux-amd64.tar.gz` - x86_64 sunucular için
+            - `ospanel-linux-arm64.tar.gz` - ARM64 sunucular için
+
+            ### 🔧 Tek Komut Kurulum
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/openspeed-panel/ospanel/main/install.sh | sudo bash
+            ```
+
+            ### ✨ Değişiklikler
+            Detaylı değişiklikler için [CHANGELOG](https://github.com/openspeed-panel/ospanel/blob/main/CHANGELOG.md) dosyasına bakın.
+          files: |
+            build/ospanel-linux-amd64.tar.gz
+            build/ospanel-linux-arm64.tar.gz
+            build/checksums.txt
+          draft: false
+          prerelease: false

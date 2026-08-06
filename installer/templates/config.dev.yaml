@@ -1,0 +1,29 @@
+# OpenSpeed Panel - Geliştirme Konfigürasyonu
+server:
+  host: "localhost"
+  port: 8443
+  tls:
+    enabled: false
+
+auth:
+  jwt_secret: "dev-secret-change-in-production"
+  access_token_expiry: 15
+  refresh_token_expiry: 10080
+  max_login_attempts: 10
+  lockout_duration: 5
+
+database:
+  max_connections: 10
+  wal_mode: true
+
+log:
+  level: "debug"
+  output: "stdout"
+
+ols:
+  admin_url: "http://localhost:7080"
+  vhosts_dir: "/usr/local/lsws/conf/vhosts"
+  conf_dir: "/usr/local/lsws/conf"
+  bin_path: "/usr/local/lsws/bin/lshttpd"
+
+data_dir: "./data"

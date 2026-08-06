@@ -1,0 +1,52 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Go Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build frontend placeholder
+        run: mkdir -p cmd/ospanel/web-dist && echo "" > cmd/ospanel/web-dist/.gitkeep
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Test
+        run: go test ./... -v -count=1
+
+      - name: Vet
+        run: go vet ./...
+
+  frontend:
+    name: Vue 3 Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: cd web && npm ci
+
+      - name: Lint
+        run: cd web && npm run build

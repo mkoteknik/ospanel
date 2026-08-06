@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenSpeed Panel
+Documentation=https://github.com/openspeed-panel/ospanel
+After=network.target lsws.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/ospanel/ospanel --config /etc/ospanel/config.yaml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Güvenlik
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/ospanel /etc/ospanel /usr/local/lsws/conf /tmp
+
+[Install]
+WantedBy=multi-user.target

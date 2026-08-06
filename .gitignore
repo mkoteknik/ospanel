@@ -1,0 +1,36 @@
+# Binary
+ospanel.exe
+ospanel
+build/
+
+# Frontend build output
+cmd/ospanel/web-dist/
+web/node_modules/
+web/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Temp
+/tmp/
+*.tmp
+*.log
+
+# Env
+.env
+.env.local
+.env.*.local
