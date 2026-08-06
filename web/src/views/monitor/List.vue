@@ -67,7 +67,7 @@ setInterval(loadStats, 10000) // 10 saniyede bir yenile
 </template>
 
 <style scoped>
-.monitor-page { max-width: 1200px; }
+.monitor-page { width: 100%; }
 h2 { margin: 0 0 24px; }
 
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }

@@ -174,7 +174,15 @@ const menuItems = [
 
 .content {
   flex: 1;
-  padding: 24px;
+  padding: 32px;
   overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  background: #f0f2f5;
+}
+
+.content > * {
+  width: 100%;
+  max-width: 1200px;
 }
 </style>

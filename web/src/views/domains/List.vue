@@ -251,7 +251,7 @@ onMounted(loadDomains)
 </template>
 
 <style scoped>
-.domains-page { max-width: 1200px; }
+.domains-page { width: 100%; }
 
 .page-header {
   display: flex;

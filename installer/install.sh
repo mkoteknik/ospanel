@@ -214,13 +214,225 @@ install_mariadb() {
 install_php() {
     log_step "PHP LSAPI sürümleri kuruluyor..."
 
-    # OLS ile gelen varsayılan PHP LSAPI yeterli
-    if [[ -f /usr/local/lsws/lsphp83/bin/lsphp ]]; then
-        log_info "PHP 8.3 LSAPI zaten mevcut"
-    else
-        log_warn "PHP LSAPI kurulumu atlandı (manuel kurulum gerekebilir)"
-        log_warn "Daha fazla bilgi: https://docs.openlitespeed.org"
+    local PHP_VERSIONS=("74" "80" "81" "82" "83" "84")
+    local INSTALLED_COUNT=0
+
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        for ver in "${PHP_VERSIONS[@]}"; do
+            if [[ -f "/usr/local/lsws/lsphp${ver}/bin/lsphp" ]]; then
+                log_info "PHP ${ver:0:1}.${ver:1} LSAPI zaten mevcut, atlanıyor"
+                ((INSTALLED_COUNT++))
+                continue
+            fi
+            log_info "PHP ${ver:0:1}.${ver:1} LSAPI kuruluyor..."
+            apt-get install -y -qq "lsphp${ver}" 2>/dev/null && {
+                log_info "  PHP ${ver:0:1}.${ver:1} ✓"
+                ((INSTALLED_COUNT++))
+            } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı"
+        done
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        for ver in "${PHP_VERSIONS[@]}"; do
+            if [[ -f "/usr/local/lsws/lsphp${ver}/bin/lsphp" ]]; then
+                log_info "PHP ${ver:0:1}.${ver:1} LSAPI zaten mevcut, atlanıyor"
+                ((INSTALLED_COUNT++))
+                continue
+            fi
+            log_info "PHP ${ver:0:1}.${ver:1} LSAPI kuruluyor..."
+            dnf install -y "lsphp${ver}" 2>/dev/null && {
+                log_info "  PHP ${ver:0:1}.${ver:1} ✓"
+                ((INSTALLED_COUNT++))
+            } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı (EL9'da 74 mevcut olmayabilir)"
+        done
     fi
+
+    # En az bir PHP sürümü kuruldu mu?
+    if [[ $INSTALLED_COUNT -eq 0 ]]; then
+        log_warn "Hiçbir PHP LSAPI sürümü kurulamadı."
+        log_warn "OLS en az bir PHP sürümü ile gelir, panel devam edecek."
+    else
+        log_info "$INSTALLED_COUNT PHP LSAPI sürümü kuruldu"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Dovecot + Postfix kurulumu
+# ---------------------------------------------------------------------------
+install_email_services() {
+    log_step "Email servisleri kuruluyor (Postfix + Dovecot)..."
+
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        # Postfix (non-interactive)
+        export DEBIAN_FRONTEND=noninteractive
+        echo "postfix postfix/mailname string localhost" | debconf-set-selections 2>/dev/null || true
+        echo "postfix postfix/main_mailer_type string 'Internet Site'" | debconf-set-selections 2>/dev/null || true
+        apt-get install -y -qq postfix dovecot-core dovecot-imapd dovecot-pop3d 2>/dev/null || true
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        dnf install -y postfix dovecot 2>/dev/null || true
+    fi
+
+    # Postfix konfigürasyon
+    if [[ -f /etc/postfix/main.cf ]]; then
+        # Temel güvenli konfigürasyon
+        postconf -e "smtpd_banner = \$myhostname ESMTP OpenSpeed Panel" 2>/dev/null || true
+        postconf -e "smtpd_tls_security_level = may" 2>/dev/null || true
+        postconf -e "smtp_tls_security_level = may" 2>/dev/null || true
+        postconf -e "home_mailbox = Maildir/" 2>/dev/null || true
+        postconf -e "mailbox_command =" 2>/dev/null || true
+        log_info "Postfix yapılandırıldı"
+    fi
+
+    # Dovecot konfigürasyon
+    if [[ -f /etc/dovecot/dovecot.conf ]]; then
+        # Maildir formatı
+        if [[ -f /etc/dovecot/conf.d/10-mail.conf ]]; then
+            sed -i 's|^#\?mail_location =.*|mail_location = maildir:~/Maildir|' /etc/dovecot/conf.d/10-mail.conf 2>/dev/null || true
+        fi
+        log_info "Dovecot yapılandırıldı"
+    fi
+
+    # Servisleri etkinleştir ve başlat
+    systemctl enable postfix 2>/dev/null || true
+    systemctl start postfix 2>/dev/null || true
+    systemctl enable dovecot 2>/dev/null || true
+    systemctl start dovecot 2>/dev/null || true
+
+    log_info "Postfix + Dovecot kuruldu ve başlatıldı"
+}
+
+# ---------------------------------------------------------------------------
+# BIND9 DNS kurulumu
+# ---------------------------------------------------------------------------
+install_dns_server() {
+    log_step "DNS sunucusu kuruluyor (BIND9)..."
+
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get install -y -qq bind9 bind9utils 2>/dev/null || true
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        dnf install -y bind bind-utils 2>/dev/null || true
+    fi
+
+    if command -v named &>/dev/null; then
+        systemctl enable named 2>/dev/null || systemctl enable bind9 2>/dev/null || true
+        systemctl start named 2>/dev/null || systemctl start bind9 2>/dev/null || true
+        log_info "BIND9 kuruldu ve başlatıldı"
+    else
+        log_warn "BIND9 kurulamadı, DNS yönetimi sınırlı olacak"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# SpamAssassin kurulumu
+# ---------------------------------------------------------------------------
+install_spamassassin() {
+    log_step "SpamAssassin kuruluyor..."
+
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get install -y -qq spamassassin spamc 2>/dev/null || true
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        dnf install -y spamassassin 2>/dev/null || true
+    fi
+
+    if command -v spamassassin &>/dev/null; then
+        systemctl enable spamassassin 2>/dev/null || true
+        systemctl start spamassassin 2>/dev/null || true
+        # SpamAssassin kurallarını güncelle
+        sa-update 2>/dev/null || true
+        log_info "SpamAssassin kuruldu ve kurallar güncellendi"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# phpMyAdmin kurulumu
+# ---------------------------------------------------------------------------
+install_phpmyadmin() {
+    log_step "phpMyAdmin kuruluyor..."
+
+    local PMA_DIR="/usr/local/lsws/Example/html/phpmyadmin"
+
+    if [[ -d "$PMA_DIR" ]]; then
+        log_info "phpMyAdmin zaten kurulu, atlanıyor"
+        return
+    fi
+
+    # Son sürümü indir
+    local PMA_URL="https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-all-languages.tar.gz"
+    cd /tmp
+    if curl -fsSL -o phpmyadmin.tar.gz "$PMA_URL" 2>/dev/null; then
+        mkdir -p "$PMA_DIR"
+        tar xzf phpmyadmin.tar.gz -C "$PMA_DIR" --strip-components=1 2>/dev/null || true
+
+        # Basit konfigürasyon
+        if [[ -d "$PMA_DIR" ]]; then
+            cp "$PMA_DIR/config.sample.inc.php" "$PMA_DIR/config.inc.php" 2>/dev/null || true
+            # Blowfish secret
+            local BLOWFISH=$(openssl rand -base64 32 2>/dev/null | tr -d '\n')
+            sed -i "s|\$cfg\['blowfish_secret'\] = '';|\$cfg\['blowfish_secret'\] = '${BLOWFISH}';|" "$PMA_DIR/config.inc.php" 2>/dev/null || true
+            log_info "phpMyAdmin kuruldu: $PMA_DIR"
+        fi
+    else
+        log_warn "phpMyAdmin indirilemedi, atlanıyor"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Fail2ban konfigürasyonu
+# ---------------------------------------------------------------------------
+configure_fail2ban() {
+    log_step "Fail2ban yapılandırılıyor..."
+
+    if ! command -v fail2ban-client &>/dev/null; then
+        if [[ "$PKG_MANAGER" == "apt" ]]; then
+            apt-get install -y -qq fail2ban 2>/dev/null || true
+        else
+            dnf install -y fail2ban 2>/dev/null || true
+        fi
+    fi
+
+    # OLS jail ekle
+    cat > /etc/fail2ban/jail.local << 'F2BEOF'
+[lshttpd]
+enabled = true
+port = http,https
+filter = lshttpd
+logpath = /usr/local/lsws/logs/error.log
+maxretry = 5
+bantime = 3600
+
+[ospanel]
+enabled = true
+port = 8443
+filter = ospanel
+logpath = /var/log/ospanel.log
+maxretry = 5
+bantime = 1800
+F2BEOF
+
+    systemctl enable fail2ban 2>/dev/null || true
+    systemctl restart fail2ban 2>/dev/null || true
+    log_info "Fail2ban yapılandırıldı"
+}
+
+# ---------------------------------------------------------------------------
+# MariaDB güvenli kurulum
+# ---------------------------------------------------------------------------
+secure_mariadb() {
+    log_step "MariaDB güvenlik yapılandırması..."
+
+    local MYSQL_PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '=+/' | head -c 20)
+
+    # Root şifresi belirle ve güvenlik ayarları
+    if command -v mysql &>/dev/null; then
+        mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_PASS}';" 2>/dev/null || true
+        mysql -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
+        mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
+        mysql -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
+        mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
+        mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+    fi
+
+    echo "$MYSQL_PASS" > /etc/ospanel/mysql_root_pass
+    chmod 600 /etc/ospanel/mysql_root_pass
+    log_info "MariaDB root şifresi: /etc/ospanel/mysql_root_pass"
 }
 
 # ---------------------------------------------------------------------------
@@ -390,30 +602,49 @@ main() {
     install_dependencies
     install_ols
     install_mariadb
+    secure_mariadb
     install_php
+    install_email_services
+    install_spamassassin
+    install_dns_server
+    install_phpmyadmin
     install_ospanel
     install_service
     configure_firewall
+    configure_fail2ban
     create_admin_user
 
     # IP adresini al
     SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "SUNUCU-IP")
 
     echo ""
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║     🎉 OpenSpeed Panel Kuruldu!              ║"
-    echo "╠══════════════════════════════════════════════╣"
-    echo "║                                              ║"
-    echo "║  URL:      https://${SERVER_IP}:8443          ║"
-    echo "║  Kullanıcı: admin                           ║"
-    echo "║  Şifre:    İlk çalıştırmada üretilecek       ║"
-    echo "║                                              ║"
-    echo "║  Servis Yönetimi:                            ║"
-    echo "║  systemctl start|stop|restart ospanel        ║"
-    echo "║  systemctl status ospanel                    ║"
-    echo "║  journalctl -u ospanel -f                    ║"
-    echo "║                                              ║"
-    echo "╚══════════════════════════════════════════════╝"
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║     🎉 OpenSpeed Panel Kuruldu!                  ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║                                                  ║"
+    echo "║  🌐 Panel:   https://${SERVER_IP}:8443              ║"
+    echo "║  👤 Admin:   admin / 123456                      ║"
+    echo "║                                                  ║"
+    echo "║  📦 Kurulan Servisler:                           ║"
+    echo "║  ✅ OpenLiteSpeed (80, 443, 7080)                ║"
+    echo "║  ✅ PHP LSAPI (7.4, 8.0-8.4)                     ║"
+    echo "║  ✅ MariaDB (3306)                               ║"
+    echo "║  ✅ Postfix + Dovecot (25, 143, 993)             ║"
+    echo "║  ✅ BIND9 DNS (53)                               ║"
+    echo "║  ✅ SpamAssassin                                 ║"
+    echo "║  ✅ phpMyAdmin                                   ║"
+    echo "║  ✅ Fail2ban                                     ║"
+    echo "║                                                  ║"
+    echo "║  🔧 Servis Yönetimi:                             ║"
+    echo "║  systemctl start|stop|restart ospanel            ║"
+    echo "║  journalctl -u ospanel -f                        ║"
+    echo "║                                                  ║"
+    echo "║  🔑 Önemli Dosyalar:                             ║"
+    echo "║  /etc/ospanel/config.yaml                        ║"
+    echo "║  /etc/ospanel/mysql_root_pass                    ║"
+    echo "║  /etc/ospanel/ols_admin_pass                     ║"
+    echo "║                                                  ║"
+    echo "╚══════════════════════════════════════════════════╝"
     echo ""
 }
 

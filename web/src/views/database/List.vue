@@ -129,7 +129,7 @@ onMounted(loadDBs)
 </template>
 
 <style scoped>
-.db-page { max-width: 1200px; }
+.db-page { width: 100%; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
 .page-header h2 { margin: 0; }
 .page-desc { color: #888; margin: 4px 0 0; font-size: 14px; }

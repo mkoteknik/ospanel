@@ -266,7 +266,7 @@ onMounted(() => loadDir(currentPath.value))
 </template>
 
 <style scoped>
-.file-manager { max-width: 1200px; }
+.file-manager { width: 100%; }
 
 .fm-header {
   display: flex;
