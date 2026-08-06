@@ -112,9 +112,10 @@ detect_os() {
             log_info "Tespit edildi: $OS $OS_VERSION (dnf)"
             ;;
         *)
-            log_error "Desteklenmeyen işletim sistemi: $OS"
-            log_error "Desteklenen: Ubuntu 20.04+, Debian 11+, Rocky 8+, AlmaLinux 8+"
-            exit 1
+            # Bilinmeyen OS'leri apt tabanlı varsay (Ubuntu/Debian türevleri)
+            log_warn "Bilinmeyen işletim sistemi: $OS $OS_VERSION"
+            log_warn "apt tabanlı olarak deneniyor..."
+            PKG_MANAGER="apt"
             ;;
     esac
 }

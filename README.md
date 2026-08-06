@@ -44,7 +44,7 @@ OpenSpeed Panel, **OpenLiteSpeed** web sunucusu ile %100 uyumlu, cPanel/Plesk al
 ## 🚀 Tek Komut Kurulum
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mkoteknik/ospanel/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/mkoteknik/ospanel/main/installer/install.sh | sudo bash
 ```
 
 ### Desteklenen İşletim Sistemleri
