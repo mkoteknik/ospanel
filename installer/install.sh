@@ -600,35 +600,32 @@ install_spamassassin() {
 }
 
 # ---------------------------------------------------------------------------
-# phpMyAdmin kurulumu
+# Adminer kurulumu (phpMyAdmin alternatifi - tek dosya)
 # ---------------------------------------------------------------------------
-install_phpmyadmin() {
-    log_step "phpMyAdmin kuruluyor..."
+install_adminer() {
+    log_step "Adminer kuruluyor (hafif veritabanı yöneticisi)..."
 
-    local PMA_DIR="/usr/local/lsws/Example/html/phpmyadmin"
+    local ADMINER_DIR="/usr/local/lsws/Example/html/adminer"
+    local ADMINER_FILE="$ADMINER_DIR/index.php"
 
-    if [[ -d "$PMA_DIR" ]]; then
-        log_info "phpMyAdmin zaten kurulu, atlanıyor"
+    if [[ -f "$ADMINER_FILE" ]]; then
+        log_info "Adminer zaten kurulu, atlanıyor"
         return
     fi
 
-    # Son sürümü indir
-    local PMA_URL="https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-all-languages.tar.gz"
-    cd /tmp
-    if curl -fsSL -o phpmyadmin.tar.gz "$PMA_URL" 2>/dev/null; then
-        mkdir -p "$PMA_DIR"
-        tar xzf phpmyadmin.tar.gz -C "$PMA_DIR" --strip-components=1 2>/dev/null || true
+    mkdir -p "$ADMINER_DIR"
 
-        # Basit konfigürasyon
-        if [[ -d "$PMA_DIR" ]]; then
-            cp "$PMA_DIR/config.sample.inc.php" "$PMA_DIR/config.inc.php" 2>/dev/null || true
-            # Blowfish secret
-            local BLOWFISH=$(openssl rand -base64 32 2>/dev/null | tr -d '\n')
-            sed -i "s|\$cfg\['blowfish_secret'\] = '';|\$cfg\['blowfish_secret'\] = '${BLOWFISH}';|" "$PMA_DIR/config.inc.php" 2>/dev/null || true
-            log_info "phpMyAdmin kuruldu: $PMA_DIR"
-        fi
+    # En son Adminer sürümünü indir (tek PHP dosyası ~500KB)
+    # MySQL, PostgreSQL, SQLite, MongoDB, Elasticsearch hepsini destekler
+    if curl -fsSL -o "$ADMINER_FILE" "https://www.adminer.org/latest.php" 2>/dev/null; then
+        chmod 644 "$ADMINER_FILE"
+        log_info "Adminer kuruldu: $ADMINER_FILE (tek dosya, ~500KB)"
+        log_info "Adminer URL: http://SUNUCU-IP/adminer/"
+    elif curl -fsSL -o "$ADMINER_FILE" "https://github.com/vrana/adminer/releases/download/v4.8.1/adminer-4.8.1.php" 2>/dev/null; then
+        chmod 644 "$ADMINER_FILE"
+        log_info "Adminer v4.8.1 kuruldu (fallback)"
     else
-        log_warn "phpMyAdmin indirilemedi, atlanıyor"
+        log_warn "Adminer indirilemedi, atlanıyor"
     fi
 }
 
@@ -980,7 +977,7 @@ main() {
     install_postgresql
     install_redis
     install_container_runtime
-    install_phpmyadmin
+    install_adminer
     install_ospanel
     install_service
     configure_firewall
@@ -1005,7 +1002,7 @@ main() {
     echo "║  ✅ Postfix + Dovecot (25, 143, 993)             ║"
     echo "║  ✅ PowerDNS (53) + SQLite + REST API           ║"
     echo "║  ✅ SpamAssassin                                 ║"
-    echo "║  ✅ phpMyAdmin                                   ║"
+    echo "║  ✅ Adminer (MySQL+PG+SQLite+MongoDB)           ║"
     echo "║  ✅ Redis Cache (256MB)                          ║"
     echo "║  ✅ Podman/Docker (opsiyonel)                    ║"
     echo "║  ✅ Fail2ban                                     ║"
