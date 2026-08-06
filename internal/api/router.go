@@ -118,6 +118,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 			// CloudFlare
 			r.Get("/cf/status", cfH.Status)
+			r.Get("/cf/zones", cfH.ListZones)
 			r.Post("/cf/configure", cfH.Configure)
 			r.Get("/cf/dns", cfH.ListDNS)
 			r.Post("/cf/dns", cfH.CreateDNS)

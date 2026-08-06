@@ -7,10 +7,26 @@ const loading = ref(true)
 const stats = ref<any>({})
 const showConfig = ref(false)
 const purging = ref(false)
-const cfConfig = ref({ email: '', api_key: '', zone_id: '' })
+const cfConfig = ref({ email: '', api_key: '' })
+const zones = ref<{ id: string; name: string; status: string }[]>([])
+const selectedZone = ref('')
 const dnsRecords = ref<any[]>([])
 const sslMode = ref('full')
 const activeTab = ref('overview')
+
+async function loadDNS() {
+  if (!selectedZone.value) return
+  try {
+    const dnsRes = await api.get('/api/v1/cf/dns?zone_id=' + selectedZone.value)
+    dnsRecords.value = dnsRes.data.records || []
+  } catch { }
+}
+
+async function deleteDNS(id: string) {
+  if (!confirm('DNS kaydı silinecek!')) return
+  try { await api.delete('/api/v1/cf/dns?id=' + id + '&zone_id=' + selectedZone.value); await loadDNS() }
+  catch { }
+}
 
 async function load() {
   loading.value = true
@@ -19,9 +35,14 @@ async function load() {
     stats.value = res.data
     configured.value = res.data.configured
     if (res.data.configured) {
+      // Zone listesini al
       try {
-        const dnsRes = await api.get('/api/v1/cf/dns')
-        dnsRecords.value = dnsRes.data.records || []
+        const zRes = await api.get('/api/v1/cf/zones')
+        zones.value = zRes.data.zones || []
+        if (zones.value.length > 0) {
+          selectedZone.value = zones.value[0].id
+          loadDNS()
+        }
       } catch { }
     }
   } catch { }
@@ -49,12 +70,6 @@ async function changeSSL(mode: string) {
     await api.post('/api/v1/cf/ssl', { mode })
     sslMode.value = mode
   } catch { }
-}
-
-async function deleteDNS(id: string) {
-  if (!confirm('DNS kaydı silinecek!')) return
-  try { await api.delete('/api/v1/cf/dns?id=' + id); await load() }
-  catch { }
 }
 
 onMounted(load)
@@ -87,6 +102,15 @@ onMounted(load)
     </div>
 
     <template v-else>
+      <!-- Zone Selector -->
+      <div class="zone-bar" v-if="zones.length > 0">
+        <label>Domain:</label>
+        <select v-model="selectedZone" @change="loadDNS">
+          <option v-for="z in zones" :key="z.id" :value="z.id">{{ z.name }} ({{ z.status }})</option>
+        </select>
+        <span class="zone-count">{{ zones.length }} domain</span>
+      </div>
+
       <!-- Stats -->
       <div class="stats-row">
         <div class="stat-card"><span class="st-icon">🌐</span><div><strong>{{ dnsRecords.length }}</strong><small>DNS Kaydı</small></div></div>
@@ -155,8 +179,7 @@ onMounted(load)
         <div class="modal-body">
           <div class="form-group"><label>CloudFlare Email</label><input v-model="cfConfig.email" placeholder="admin@site.com" /></div>
           <div class="form-group"><label>Global API Key</label><input v-model="cfConfig.api_key" type="password" placeholder="CloudFlare → My Profile → API Tokens" /></div>
-          <div class="form-group"><label>Zone ID</label><input v-model="cfConfig.zone_id" placeholder="CloudFlare → Domain → Overview" /></div>
-          <p style="font-size:12px;color:#888">API Key: CloudFlare profil → API Tokens → Global API Key</p>
+          <p style="font-size:12px;color:#888">API Key: CloudFlare profil → API Tokens → Global API Key. Zone'lar otomatik çekilecek.</p>
         </div>
         <div class="modal-footer"><button class="btn-cancel" @click="showConfig=false">İptal</button><button class="btn-primary" @click="saveConfig">💾 Kaydet</button></div>
       </div>
@@ -185,6 +208,12 @@ onMounted(load)
 .nc-icon { font-size: 56px; margin-bottom: 16px; }
 .not-configured h3 { margin: 0 0 8px; }
 .not-configured p { color: #888; margin: 0 0 20px; }
+
+.zone-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; background: white; padding: 12px 20px; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+.zone-bar label { font-size: 13px; font-weight: 600; color: #333; }
+.zone-bar select { padding: 8px 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; background: white; min-width: 250px; cursor: pointer; }
+.zone-bar select:focus { outline: none; border-color: #0f3460; }
+.zone-count { font-size: 12px; color: #888; }
 
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
 .stat-card { background: white; border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }

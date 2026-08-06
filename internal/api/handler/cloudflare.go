@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/mkoteknik/ospanel/internal/adapter/cloudflare"
@@ -30,24 +31,47 @@ func (h *CFHandler) Configure(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email  string `json:"email"`
 		APIKey string `json:"api_key"`
-		ZoneID string `json:"zone_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
 		return
 	}
 
-	if err := h.cf.Configure(req.Email, req.APIKey, req.ZoneID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Kaydedilemedi"})
+	// API key ve email'i kaydet, zone'ları otomatik çek
+	h.cf.Configure(req.Email, req.APIKey, "")
+
+	// Tüm zone'ları listele
+	zones, err := h.cf.ListZones()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"message": "CloudFlare bağlandı ama zone listesi alınamadı",
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	h.log.Infow("CloudFlare yapılandırıldı", "email", req.Email)
-	writeJSON(w, http.StatusOK, map[string]string{"message": "CloudFlare yapılandırıldı"})
+	h.log.Infow("CloudFlare yapılandırıldı", "email", req.Email, "zones", len(zones))
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "CloudFlare bağlandı! " + fmt.Sprint(len(zones)) + " domain bulundu",
+		"zones":   zones,
+		"total":   len(zones),
+	})
 }
 
-// ListDNS CF DNS kayıtlarını listeler
+// ListZones tüm zone'ları listeler
+func (h *CFHandler) ListZones(w http.ResponseWriter, r *http.Request) {
+	zones, err := h.cf.ListZones()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"zones": zones, "total": len(zones)})
+}
+
+// ListDNS CF DNS kayıtlarını listeler (?zone_id=xxx)
 func (h *CFHandler) ListDNS(w http.ResponseWriter, r *http.Request) {
+	zoneID := r.URL.Query().Get("zone_id")
+	if zoneID != "" { h.cf.SetZoneID(zoneID) }
 	records, err := h.cf.ListDNSRecords()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

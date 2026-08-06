@@ -107,6 +107,19 @@ func (c *Client) GetZoneInfo() (map[string]interface{}, error) {
 	return result, nil
 }
 
+// ListZones tüm zone'ları listeler
+func (c *Client) ListZones() ([]Zone, error) {
+	resp, err := c.doRequest("GET", "/zones?per_page=500", nil)
+	if err != nil {
+		return nil, err
+	}
+	var zones []Zone
+	if err := json.Unmarshal(resp, &zones); err != nil {
+		return nil, err
+	}
+	return zones, nil
+}
+
 // GetDomainZone domain için zone ID bulur
 func (c *Client) GetDomainZone(domain string) (string, error) {
 	params := url.Values{}
