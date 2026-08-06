@@ -144,7 +144,7 @@ install_dependencies() {
 # OpenLiteSpeed kurulumu
 # ---------------------------------------------------------------------------
 install_ols() {
-    log_step "OpenLiteSpeed v${OLS_VERSION} kuruluyor (sabit paket, repo YOK)..."
+    log_step "OpenLiteSpeed kuruluyor (sabit paket, repo YOK)..."
 
     if [[ -f /usr/local/lsws/bin/lshttpd ]]; then
         log_info "OpenLiteSpeed zaten kurulu (/usr/local/lsws mevcut), atlanıyor"
@@ -1017,7 +1017,6 @@ create_admin_user() {
 # Ana kurulum
 # ---------------------------------------------------------------------------
 main() {
-    clear
     echo ""
     echo "╔══════════════════════════════════════════════╗"
     echo "║         OpenSpeed Panel Kurulum              ║"
