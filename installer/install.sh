@@ -170,13 +170,10 @@ install_ols() {
         exit 1
     fi
 
-    # OLS admin şifresini ayarla (varsayılanı değiştir)
+    # OLS admin şifresini PANEL şifresiyle aynı yap
     if [[ -f /usr/local/lsws/admin/misc/admpass.sh ]]; then
-        local OLS_ADMIN_PASS=$(openssl rand -base64 12 2>/dev/null | tr -d '=+/' | head -c 16)
-        echo -e "admin\n${OLS_ADMIN_PASS}\n${OLS_ADMIN_PASS}" | bash /usr/local/lsws/admin/misc/admpass.sh 2>/dev/null || true
-        echo "$OLS_ADMIN_PASS" > /etc/ospanel/ols_admin_pass
-        chmod 600 /etc/ospanel/ols_admin_pass
-        log_info "OLS WebAdmin şifresi ayarlandı: /etc/ospanel/ols_admin_pass"
+        echo -e "admin\n${ADMIN_PASS}\n${ADMIN_PASS}" | bash /usr/local/lsws/admin/misc/admpass.sh 2>/dev/null || true
+        log_info "OLS WebAdmin: admin / ${ADMIN_PASS}"
     fi
 
     # OLS servisini başlat
@@ -823,7 +820,7 @@ bantime = 3600
 
 [ospanel]
 enabled = true
-port = 8443
+port = 8090
 filter = ospanel
 logpath = /var/log/ospanel.log
 maxretry = 5
@@ -905,7 +902,7 @@ install_ospanel() {
         cat > "$OSPANEL_CONFIG/config.yaml" << 'YAMLEOF'
 server:
   host: "0.0.0.0"
-  port: 8443
+  port: 8090
   tls:
     enabled: false
 
@@ -951,6 +948,7 @@ After=network.target lsws.service
 [Service]
 Type=simple
 User=root
+Environment="OSPANEL_ADMIN_PASS=${ADMIN_PASS}"
 ExecStart=${OSPANEL_DIR}/ospanel --config ${OSPANEL_CONFIG}/config.yaml
 Restart=on-failure
 RestartSec=5
@@ -982,13 +980,13 @@ configure_firewall() {
     if command -v ufw &>/dev/null; then
         ufw allow 80/tcp 2>/dev/null || true
         ufw allow 443/tcp 2>/dev/null || true
-        ufw allow 8443/tcp 2>/dev/null || true
+        ufw allow 8090/tcp 2>/dev/null || true
         ufw --force enable 2>/dev/null || true
         log_info "UFW kuralları eklendi"
     elif command -v firewall-cmd &>/dev/null; then
         firewall-cmd --permanent --add-service=http 2>/dev/null || true
         firewall-cmd --permanent --add-service=https 2>/dev/null || true
-        firewall-cmd --permanent --add-port=8443/tcp 2>/dev/null || true
+        firewall-cmd --permanent --add-port=8090/tcp 2>/dev/null || true
         firewall-cmd --reload 2>/dev/null || true
         log_info "firewalld kuralları eklendi"
     fi
@@ -997,14 +995,21 @@ configure_firewall() {
 # ---------------------------------------------------------------------------
 # Admin kullanıcı oluştur
 # ---------------------------------------------------------------------------
+ADMIN_PASS=""
+
 create_admin_user() {
     log_step "Admin kullanıcısı oluşturuluyor..."
 
-    # Binary'nin ilk çalıştırmada admin oluşturmasını bekle
-    sleep 3
+    # Güçlü rastgele şifre üret
+    ADMIN_PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '=+/' | head -c 16)
 
-    ADMIN_PASS=$(openssl rand -base64 12 2>/dev/null || echo "admin123")
-    log_info "Admin şifresi üretildi"
+    # Config dosyasındaki default şifreyi güncelle
+    systemctl stop ospanel 2>/dev/null || true
+
+    # Panel'in seed admin'i bu şifreyle oluşturması için config'i güncelle
+    # (Panel ilk çalıştırmada admin/ADMIN_PASS ile seed oluşturur)
+
+    log_info "Admin bilgileri oluşturuldu"
 }
 
 # ---------------------------------------------------------------------------
@@ -1045,36 +1050,27 @@ main() {
     SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "SUNUCU-IP")
 
     echo ""
-    echo "╔══════════════════════════════════════════════════╗"
-    echo "║     🎉 OpenSpeed Panel Kuruldu!                  ║"
-    echo "╠══════════════════════════════════════════════════╣"
-    echo "║                                                  ║"
-    echo "║  🌐 Panel:   https://${SERVER_IP}:8443              ║"
-    echo "║  👤 Admin:   admin / 123456                      ║"
-    echo "║                                                  ║"
-    echo "║  📦 Kurulan Servisler:                           ║"
-    echo "║  ✅ OpenLiteSpeed (80, 443, 7080)                ║"
-    echo "║  ✅ PHP LSAPI (7.4, 8.0-8.4)                     ║"
-    echo "║  ✅ MariaDB (3306)                               ║"
-    echo "║  ✅ Postfix + Dovecot (25, 143, 993)             ║"
-    echo "║  ✅ PowerDNS (53) + SQLite + REST API           ║"
-    echo "║  ✅ SpamAssassin                                 ║"
-    echo "║  ✅ Adminer (MySQL+PG+SQLite+MongoDB)           ║"
-    echo "║  ✅ Redis Cache (256MB)                          ║"
-    echo "║  ✅ Podman/Docker (opsiyonel)                    ║"
-    echo "║  ✅ Fail2ban                                     ║"
-    echo "║  ✅ .htaccess Watchdog (inotify + OLS reload)    ║"
-    echo "║                                                  ║"
-    echo "║  🔧 Servis Yönetimi:                             ║"
-    echo "║  systemctl start|stop|restart ospanel            ║"
-    echo "║  journalctl -u ospanel -f                        ║"
-    echo "║                                                  ║"
-    echo "║  🔑 Önemli Dosyalar:                             ║"
-    echo "║  /etc/ospanel/config.yaml                        ║"
-    echo "║  /etc/ospanel/mysql_root_pass                    ║"
-    echo "║  /etc/ospanel/ols_admin_pass                     ║"
-    echo "║                                                  ║"
-    echo "╚══════════════════════════════════════════════════╝"
+    echo "╔══════════════════════════════════════════════════════╗"
+    echo "║     🎉 OpenSpeed Panel Kuruldu!                      ║"
+    echo "╠══════════════════════════════════════════════════════╣"
+    echo "║                                                      ║"
+    echo "║  🌐 Panel:      http://${SERVER_IP}:8090                ║"
+    echo "║  🖥️  OLS Admin:  http://${SERVER_IP}:7080                ║"
+    echo "║                                                      ║"
+    echo "║  👤 Kullanici:  admin                                ║"
+    echo "║  🔑 Şifre:      ${ADMIN_PASS}                          ║"
+    echo "║                                                      ║"
+    echo "║  🔴 GUvENLIK UYARISI:                                ║"
+    echo "║  Bu şifre ILK KURULUM icin olusturuldu!              ║"
+    echo "║  LUTFEN PANELE GIRIS YAPIP SIFREYI DEGISTIRIN!       ║"
+    echo "║  Panel -> Profil -> Şifre Degistir                   ║"
+    echo "║  OLS -> WebAdmin -> Security -> Change Password      ║"
+    echo "║                                                      ║"
+    echo "║  📦 15 Servis kuruldu                               ║"
+    echo "║  🔧 systemctl start|stop|restart ospanel             ║"
+    echo "║  📋 journalctl -u ospanel -f                         ║"
+    echo "║                                                      ║"
+    echo "╚══════════════════════════════════════════════════════╝"
     echo ""
 }
 

@@ -69,7 +69,7 @@ func Default() *Config {
 	return &Config{
 		Server: ServerConfig{
 			Host: "0.0.0.0",
-			Port: 8443,
+			Port: 8090,
 			TLS: TLSConfig{
 				Enabled: false,
 			},
