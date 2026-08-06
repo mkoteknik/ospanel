@@ -52,6 +52,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	cacheH := handler.NewCacheHandler(cache.NewRedisClient(), cfg.Logger)
 	containerH := handler.NewContainerHandler(container.NewDockerClient(), cfg.Logger)
 	deployH := handler.NewDeployHandler(cfg.Logger)
+	cfH := handler.NewCFHandler(cfg.Logger)
 	olsH := handler.NewOLSHandler("http://localhost:7080")
 
 	// Auth middleware
@@ -105,6 +106,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/files/create", fileH.CreateFile)
 			r.Post("/files/archive", fileH.CreateArchive)
 			r.Post("/files/extract", fileH.ExtractArchive)
+
+			// CloudFlare
+			r.Get("/cf/status", cfH.Status)
+			r.Post("/cf/configure", cfH.Configure)
+			r.Get("/cf/dns", cfH.ListDNS)
+			r.Post("/cf/dns", cfH.CreateDNS)
+			r.Delete("/cf/dns", cfH.DeleteDNS)
+			r.Post("/cf/purge", cfH.PurgeCache)
+			r.Get("/cf/analytics", cfH.Analytics)
+			r.Post("/cf/ssl", cfH.SSLMode)
 
 			// Cache (Redis)
 			r.Get("/cache/status", cacheH.Status)

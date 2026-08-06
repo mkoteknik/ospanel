@@ -76,6 +76,11 @@ const router = createRouter({
           component: () => import('@/views/cache/List.vue'),
         },
         {
+          path: 'cloudflare',
+          name: 'CloudFlare',
+          component: () => import('@/views/cloudflare/List.vue'),
+        },
+        {
           path: 'containers',
           name: 'Containers',
           component: () => import('@/views/containers/List.vue'),

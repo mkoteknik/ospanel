@@ -39,6 +39,7 @@ const menuItems = [
   { path: '/backup', label: '💾 Yedekleme' },
   { path: '/monitor', label: '📈 Monitoring' },
   { path: '/security', label: '🛡️ Güvenlik' },
+  { path: '/cloudflare', label: '☁️ CloudFlare' },
   { path: '/cache', label: '⚡ Redis Cache' },
   { path: '/containers', label: '🐳 Konteynerler' },
 ]
