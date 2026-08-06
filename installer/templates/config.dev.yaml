@@ -1,7 +1,7 @@
 # OpenSpeed Panel - Geliştirme Konfigürasyonu
 server:
   host: "localhost"
-  port: 8443
+  port: 8090
   tls:
     enabled: false
 

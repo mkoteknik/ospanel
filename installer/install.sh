@@ -144,7 +144,7 @@ install_dependencies() {
 # OpenLiteSpeed kurulumu
 # ---------------------------------------------------------------------------
 install_ols() {
-    log_step "OpenLiteSpeed kuruluyor (sabit paket, repo YOK)..."
+    log_step "OpenLiteSpeed kuruluyor..."
 
     if [[ -f /usr/local/lsws/bin/lshttpd ]]; then
         log_info "OpenLiteSpeed zaten kurulu (/usr/local/lsws mevcut), atlanıyor"
@@ -154,20 +154,25 @@ install_ols() {
     local OLS_INSTALLED=0
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        # === Ubuntu / Debian: repodaki .deb'i kullan ===
-        if download_pkg "openlitespeed.deb" "$OLS_DEB_FALLBACK" /tmp/ols.deb; then
-            dpkg -i /tmp/ols.deb 2>/dev/null && OLS_INSTALLED=1
-            apt-get install -f -y -qq 2>/dev/null || true
-        fi
+        # Jammy repo ekle (geçici, sadece OLS + PHP LSAPI için)
+        log_info "OLS Jammy repo ekleniyor (geçici)..."
+        echo "deb http://rpms.litespeedtech.com/debian/ jammy main" > /etc/apt/sources.list.d/lst_ospanel.list
+        curl -fsSL http://rpms.litespeedtech.com/debian/lst_debian_repo.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/lst_ospanel.gpg 2>/dev/null || true
+        apt-get update -qq 2>/dev/null || true
+
+        # OLS + PHP LSAPI birlikte kur (bağımlılıklar için)
+        apt-get install -y -qq openlitespeed lsphp82 lsphp83 lsphp84 lsphp82-mysql lsphp83-mysql lsphp84-mysql 2>/dev/null && OLS_INSTALLED=1
+
+        # Geçici repoyu temizle
+        rm -f /etc/apt/sources.list.d/lst_ospanel.list
+        apt-get update -qq 2>/dev/null || true
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        if download_pkg "openlitespeed.rpm" "$OLS_RPM_FALLBACK" /tmp/ols.rpm; then
-            rpm -ivh /tmp/ols.rpm 2>/dev/null && OLS_INSTALLED=1
-        fi
+        rpm -Uvh http://rpms.litespeedtech.com/centos/litespeed-repo-1.4-1.el8.noarch.rpm 2>/dev/null || true
+        dnf install -y openlitespeed lsphp82 lsphp83 lsphp84 2>/dev/null && OLS_INSTALLED=1
     fi
 
     if [[ $OLS_INSTALLED -eq 0 ]]; then
-        log_error "OpenLiteSpeed kurulamadı! Sabit paket URL'leri kontrol edin."
-        log_error "URL: $OLS_DEB_FALLBACK"
+        log_error "OpenLiteSpeed kurulamadı!"
         exit 1
     fi
 
@@ -217,55 +222,19 @@ install_mariadb() {
 # PHP LSAPI kurulumu
 # ---------------------------------------------------------------------------
 install_php() {
-    log_step "PHP LSAPI sürümleri kuruluyor (sabit paket, repo YOK)..."
+    log_step "PHP LSAPI kontrol ediliyor..."
 
-    local PHP_VERSIONS=("82" "83" "84")
     local INSTALLED_COUNT=0
-    local LSAPI_DIR="https://rpms.litespeedtech.com/debian/pool/main"
+    for ver in 82 83 84; do
+        if [[ -f "/usr/local/lsws/lsphp${ver}/bin/lsphp" ]]; then
+            ((INSTALLED_COUNT++))
+        fi
+    done
 
-    if [[ "$PKG_MANAGER" == "apt" ]]; then
-        for ver in "${PHP_VERSIONS[@]}"; do
-            if [[ -f "/usr/local/lsws/lsphp${ver}/bin/lsphp" ]]; then
-                log_info "PHP ${ver:0:1}.${ver:1} LSAPI zaten mevcut, atlanıyor"
-                ((INSTALLED_COUNT++))
-                continue
-            fi
-
-            log_info "PHP ${ver:0:1}.${ver:1} LSAPI indiriliyor..."
-            local DEB_NAME="lsphp${ver}.deb"
-            if download_pkg "$DEB_NAME" "" /tmp/lsphp.deb; then
-                dpkg -i /tmp/lsphp.deb 2>/dev/null && {
-                    log_info "  PHP ${ver:0:1}.${ver:1} ✓"
-                    ((INSTALLED_COUNT++))
-                    continue
-                }
-            fi
-
-            # Fallback: apt
-            log_warn "  Paket bulunamadı, apt deneniyor..."
-            apt-get install -y -qq "lsphp${ver}" 2>/dev/null && {
-                ((INSTALLED_COUNT++))
-            } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı"
-        done
-    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        for ver in "${PHP_VERSIONS[@]}"; do
-            if [[ -f "/usr/local/lsws/lsphp${ver}/bin/lsphp" ]]; then
-                log_info "PHP ${ver:0:1}.${ver:1} LSAPI zaten mevcut, atlanıyor"
-                ((INSTALLED_COUNT++))
-                continue
-            fi
-            log_info "PHP ${ver:0:1}.${ver:1} LSAPI kuruluyor..."
-            dnf install -y "lsphp${ver}" 2>/dev/null && {
-                log_info "  PHP ${ver:0:1}.${ver:1} ✓"
-                ((INSTALLED_COUNT++))
-            } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı"
-        done
-    fi
-
-    if [[ $INSTALLED_COUNT -eq 0 ]]; then
-        log_warn "Hiçbir PHP LSAPI sürümü kurulamadı. OLS varsayılan PHP'si kullanılacak."
+    if [[ $INSTALLED_COUNT -ge 1 ]]; then
+        log_info "$INSTALLED_COUNT PHP LSAPI sürümü mevcut (OLS ile kuruldu)"
     else
-        log_info "$INSTALLED_COUNT PHP LSAPI sürümü kuruldu (sabit paket)"
+        log_warn "PHP LSAPI bulunamadı, OLS kurulumu kontrol edin"
     fi
 }
 
@@ -839,6 +808,7 @@ F2BEOF
 secure_mariadb() {
     log_step "MariaDB güvenlik yapılandırması..."
 
+    mkdir -p /etc/ospanel
     local MYSQL_PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '=+/' | head -c 20)
 
     # Root şifresi belirle ve güvenlik ayarları

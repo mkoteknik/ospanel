@@ -52,6 +52,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	cacheH := handler.NewCacheHandler(cache.NewRedisClient(), cfg.Logger)
 	containerH := handler.NewContainerHandler(container.NewDockerClient(), cfg.Logger)
 	deployH := handler.NewDeployHandler(cfg.Logger)
+	olsH := handler.NewOLSHandler("http://localhost:7080")
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -109,6 +110,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/cache/status", cacheH.Status)
 			r.Get("/cache/info", cacheH.Info)
 			r.Post("/cache/flush", cacheH.FlushCache)
+
+			// OLS WebAdmin
+			r.Get("/ols/info", olsH.LoginInfo)
+			r.Get("/ols/proxy", olsH.Proxy)
+			r.Handle("/ols/*", http.StripPrefix("/ols", http.HandlerFunc(olsH.Proxy)))
 
 			// Deploy (One-click)
 			r.Get("/deploy/templates", deployH.ListTemplates)

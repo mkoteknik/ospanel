@@ -8,6 +8,21 @@ const route = useRoute()
 const authStore = useAuthStore()
 const sidebarOpen = ref(true)
 
+// OLS Admin panelini yeni sekmede aç
+async function openOLS() {
+  try {
+    const res = await fetch('/api/v1/ols/info', { headers: { Authorization: 'Bearer ' + authStore.accessToken } })
+    const data = await res.json()
+    if (data.direct_url) {
+      window.open('http://' + data.direct_url, '_blank')
+    } else {
+      window.open(data.ols_admin_url || 'http://SERVER_IP:7080', '_blank')
+    }
+  } catch {
+    window.open('http://' + window.location.hostname + ':7080', '_blank')
+  }
+}
+
 function isActive(path: string) {
   const current = '/' + (route.path.split('/')[1] || '')
   return current === path
@@ -58,6 +73,7 @@ const menuItems = [
           {{ sidebarOpen ? '◀' : '▶' }}
         </button>
         <div class="topbar-right">
+          <a href="#" class="ols-btn" @click.prevent="openOLS" title="OLS WebAdmin">🖥️ OLS Admin</a>
           <span class="user-info">👤 {{ authStore.user?.username || 'Kullanıcı' }}</span>
           <button class="logout-btn" @click="authStore.logout()">Çıkış</button>
         </div>
@@ -166,6 +182,25 @@ const menuItems = [
 }
 
 .user-info { font-size: 14px; color: #333; }
+
+.ols-btn {
+  padding: 8px 16px;
+  background: #f0f4ff;
+  color: #0f3460;
+  border: 1px solid #d0d8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.ols-btn:hover {
+  background: #0f3460;
+  color: white;
+  border-color: #0f3460;
+}
 
 .logout-btn {
   background: #e74c3c;
