@@ -375,6 +375,85 @@ install_phpmyadmin() {
 }
 
 # ---------------------------------------------------------------------------
+# Redis kurulumu
+# ---------------------------------------------------------------------------
+install_redis() {
+    log_step "Redis cache kuruluyor..."
+
+    if command -v redis-server &>/dev/null; then
+        log_info "Redis zaten kurulu, atlanıyor"
+        return
+    fi
+
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get install -y -qq redis-server 2>/dev/null || true
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        dnf install -y redis 2>/dev/null || true
+    fi
+
+    if command -v redis-server &>/dev/null; then
+        # Redis yapılandırması - socket ve TCP
+        sed -i 's|^bind .*|bind 127.0.0.1|' /etc/redis/redis.conf 2>/dev/null || true
+        sed -i 's|^# maxmemory .*|maxmemory 256mb|' /etc/redis/redis.conf 2>/dev/null || true
+        sed -i 's|^# maxmemory-policy .*|maxmemory-policy allkeys-lru|' /etc/redis/redis.conf 2>/dev/null || true
+
+        systemctl enable redis-server 2>/dev/null || systemctl enable redis 2>/dev/null || true
+        systemctl restart redis-server 2>/dev/null || systemctl restart redis 2>/dev/null || true
+        log_info "Redis kuruldu ve yapılandırıldı (max 256MB, LRU policy)"
+    else
+        log_warn "Redis kurulamadı, cache özelliği sınırlı olacak"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Docker / Podman kurulumu (opsiyonel)
+# ---------------------------------------------------------------------------
+install_container_runtime() {
+    log_step "Konteyner runtime kuruluyor..."
+
+    # Podman'ı dene (rootless, daha güvenli)
+    if command -v podman &>/dev/null; then
+        log_info "Podman zaten kurulu, atlanıyor"
+        return
+    fi
+
+    if command -v docker &>/dev/null; then
+        log_info "Docker zaten kurulu, atlanıyor"
+        return
+    fi
+
+    # Podman dene (önerilen - rootless)
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get install -y -qq podman 2>/dev/null && {
+            log_info "Podman (rootless) kuruldu ✅"
+            return
+        }
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        dnf install -y podman 2>/dev/null && {
+            log_info "Podman (rootless) kuruldu ✅"
+            return
+        }
+    fi
+
+    # Podman yoksa Docker dene
+    log_info "Podman bulunamadı, Docker deneniyor..."
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get install -y -qq docker.io 2>/dev/null || \
+        curl -fsSL https://get.docker.com | bash 2>/dev/null || true
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        dnf install -y docker 2>/dev/null || true
+    fi
+
+    if command -v docker &>/dev/null; then
+        systemctl enable docker 2>/dev/null || true
+        systemctl start docker 2>/dev/null || true
+        log_info "Docker kuruldu ✅"
+    else
+        log_warn "Konteyner runtime kurulamadı (opsiyonel)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Fail2ban konfigürasyonu
 # ---------------------------------------------------------------------------
 configure_fail2ban() {
@@ -607,6 +686,8 @@ main() {
     install_email_services
     install_spamassassin
     install_dns_server
+    install_redis
+    install_container_runtime
     install_phpmyadmin
     install_ospanel
     install_service
@@ -633,6 +714,8 @@ main() {
     echo "║  ✅ BIND9 DNS (53)                               ║"
     echo "║  ✅ SpamAssassin                                 ║"
     echo "║  ✅ phpMyAdmin                                   ║"
+    echo "║  ✅ Redis Cache (256MB)                          ║"
+    echo "║  ✅ Podman/Docker (opsiyonel)                    ║"
     echo "║  ✅ Fail2ban                                     ║"
     echo "║                                                  ║"
     echo "║  🔧 Servis Yönetimi:                             ║"

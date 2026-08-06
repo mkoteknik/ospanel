@@ -65,6 +65,16 @@ const router = createRouter({
           name: 'Security',
           component: () => import('@/views/security/List.vue'),
         },
+        {
+          path: 'cache',
+          name: 'Cache',
+          component: () => import('@/views/cache/List.vue'),
+        },
+        {
+          path: 'containers',
+          name: 'Containers',
+          component: () => import('@/views/containers/List.vue'),
+        },
       ],
     },
     {

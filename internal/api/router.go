@@ -7,6 +7,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/mkoteknik/ospanel/internal/adapter/cache"
+	"github.com/mkoteknik/ospanel/internal/adapter/container"
 	"github.com/mkoteknik/ospanel/internal/adapter/ols"
 	"github.com/mkoteknik/ospanel/internal/api/handler"
 	apimw "github.com/mkoteknik/ospanel/internal/api/middleware"
@@ -43,6 +45,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	fileH := handler.NewFileHandler(cfg.Store, cfg.Logger)
 	monitorH := handler.NewMonitorHandler(cfg.Logger)
 	adminH := handler.NewAdminHandler(cfg.Store, cfg.Logger)
+	cacheH := handler.NewCacheHandler(cache.NewRedisClient(), cfg.Logger)
+	containerH := handler.NewContainerHandler(container.NewDockerClient(), cfg.Logger)
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -89,6 +93,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/files/mkdir", fileH.CreateDir)
 			r.Post("/files/archive", fileH.CreateArchive)
 			r.Post("/files/extract", fileH.ExtractArchive)
+
+			// Cache (Redis)
+			r.Get("/cache/status", cacheH.Status)
+			r.Get("/cache/info", cacheH.Info)
+			r.Post("/cache/flush", cacheH.FlushCache)
+
+			// Containers (Docker/Podman)
+			r.Get("/containers", containerH.List)
+			r.Get("/containers/stats", containerH.Stats)
+			r.Post("/containers/{id}/start", containerH.Start)
+			r.Post("/containers/{id}/stop", containerH.Stop)
+			r.Post("/containers/{id}/restart", containerH.Restart)
 
 			// Monitor
 			r.Get("/monitor/stats", monitorH.Stats)
