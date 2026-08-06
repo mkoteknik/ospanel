@@ -633,6 +633,39 @@ install_phpmyadmin() {
 }
 
 # ---------------------------------------------------------------------------
+# PostgreSQL kurulumu
+# ---------------------------------------------------------------------------
+install_postgresql() {
+    log_step "PostgreSQL kuruluyor..."
+
+    if command -v psql &>/dev/null; then
+        log_info "PostgreSQL zaten kurulu, atlanıyor"
+        return
+    fi
+
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get install -y -qq postgresql postgresql-contrib 2>/dev/null && log_info "PostgreSQL kuruldu"
+    elif [[ "$PKG_MANAGER" == "dnf" ]]; then
+        dnf install -y postgresql-server postgresql-contrib 2>/dev/null && {
+            postgresql-setup --initdb 2>/dev/null || true
+            log_info "PostgreSQL kuruldu"
+        }
+    fi
+
+    if command -v psql &>/dev/null; then
+        # PostgreSQL şifresi ayarla
+        local PG_PASS=$(openssl rand -base64 12 2>/dev/null | tr -d '=+/' | head -c 16)
+        su - postgres -c "psql -c \"ALTER USER postgres PASSWORD '${PG_PASS}';\"" 2>/dev/null || true
+        echo "$PG_PASS" > /etc/ospanel/pg_pass
+        chmod 600 /etc/ospanel/pg_pass
+
+        systemctl enable postgresql 2>/dev/null || true
+        systemctl restart postgresql 2>/dev/null || true
+        log_info "PostgreSQL yapılandırıldı"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Redis kurulumu
 # ---------------------------------------------------------------------------
 install_redis() {
@@ -944,6 +977,7 @@ main() {
     install_email_services
     install_spamassassin
     install_dns_server
+    install_postgresql
     install_redis
     install_container_runtime
     install_phpmyadmin

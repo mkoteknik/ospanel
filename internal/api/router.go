@@ -51,6 +51,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	adminH := handler.NewAdminHandler(cfg.Store, cfg.Logger)
 	cacheH := handler.NewCacheHandler(cache.NewRedisClient(), cfg.Logger)
 	containerH := handler.NewContainerHandler(container.NewDockerClient(), cfg.Logger)
+	deployH := handler.NewDeployHandler(cfg.Logger)
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -102,6 +103,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/cache/status", cacheH.Status)
 			r.Get("/cache/info", cacheH.Info)
 			r.Post("/cache/flush", cacheH.FlushCache)
+
+			// Deploy (One-click)
+			r.Get("/deploy/templates", deployH.ListTemplates)
+			r.Get("/deploy/template", deployH.GetTemplate)
+			r.Post("/deploy", deployH.Deploy)
 
 			// Containers (Docker/Podman)
 			r.Get("/containers", containerH.List)
