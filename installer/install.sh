@@ -300,24 +300,101 @@ install_email_services() {
 }
 
 # ---------------------------------------------------------------------------
-# BIND9 DNS kurulumu
+# PowerDNS + SQLite kurulumu
 # ---------------------------------------------------------------------------
 install_dns_server() {
-    log_step "DNS sunucusu kuruluyor (BIND9)..."
+    log_step "PowerDNS kuruluyor (SQLite backend)..."
+
+    if command -v pdns_server &>/dev/null; then
+        log_info "PowerDNS zaten kurulu, atlanıyor"
+        return
+    fi
+
+    local PDNS_INSTALLED=0
+    local PDNS_API_KEY=$(openssl rand -hex 32 2>/dev/null || echo "changeme")
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        apt-get install -y -qq bind9 bind9utils 2>/dev/null || true
+        # PowerDNS + SQLite backend
+        apt-get install -y -qq pdns-server pdns-backend-sqlite3 sqlite3 2>/dev/null && PDNS_INSTALLED=1
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        dnf install -y bind bind-utils 2>/dev/null || true
+        dnf install -y pdns pdns-backend-sqlite sqlite 2>/dev/null && PDNS_INSTALLED=1
+        # EPEL'den dene
+        if [[ $PDNS_INSTALLED -eq 0 ]]; then
+            dnf install -y epel-release 2>/dev/null || true
+            dnf install -y pdns pdns-backend-sqlite 2>/dev/null && PDNS_INSTALLED=1
+        fi
     fi
 
-    if command -v named &>/dev/null; then
-        systemctl enable named 2>/dev/null || systemctl enable bind9 2>/dev/null || true
-        systemctl start named 2>/dev/null || systemctl start bind9 2>/dev/null || true
-        log_info "BIND9 kuruldu ve başlatıldı"
-    else
-        log_warn "BIND9 kurulamadı, DNS yönetimi sınırlı olacak"
+    if [[ $PDNS_INSTALLED -eq 0 ]]; then
+        log_warn "PowerDNS kurulamadı, DNS yönetimi sınırlı olacak"
+        return
     fi
+
+    # SQLite veritabanı oluştur
+    local PDNS_DB="/var/lib/pdns/pdns.sqlite3"
+    mkdir -p /var/lib/pdns
+
+    sqlite3 "$PDNS_DB" "CREATE TABLE IF NOT EXISTS domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        master VARCHAR(128) DEFAULT NULL,
+        last_check INTEGER DEFAULT NULL,
+        type VARCHAR(8) NOT NULL DEFAULT 'NATIVE',
+        notified_serial INTEGER DEFAULT NULL,
+        account VARCHAR(40) DEFAULT NULL
+    );" 2>/dev/null || true
+
+    sqlite3 "$PDNS_DB" "CREATE TABLE IF NOT EXISTS records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain_id INTEGER,
+        name VARCHAR(255),
+        type VARCHAR(10),
+        content VARCHAR(65535),
+        ttl INTEGER DEFAULT 3600,
+        prio INTEGER DEFAULT 0,
+        change_date INTEGER DEFAULT 0,
+        disabled BOOLEAN DEFAULT 0,
+        auth BOOL DEFAULT 1,
+        FOREIGN KEY(domain_id) REFERENCES domains(id) ON DELETE CASCADE
+    );" 2>/dev/null || true
+
+    chown -R pdns:pdns /var/lib/pdns 2>/dev/null || true
+
+    # PowerDNS konfigürasyonu
+    cat > /etc/pdns/pdns.conf << PDNSCONF
+# PowerDNS - OpenSpeed Panel
+launch=gsqlite3
+gsqlite3-database=${PDNS_DB}
+gsqlite3-dnssec=no
+
+# API (sadece localhost)
+api=yes
+api-key=${PDNS_API_KEY}
+webserver=yes
+webserver-address=127.0.0.1
+webserver-port=8081
+webserver-allow-from=127.0.0.1
+
+# Güvenlik
+allow-axfr-ips=127.0.0.1
+master=no
+slave=no
+default-soa-content=ns1.ospanel.local admin.ospanel.local 0 10800 3600 604800 3600
+
+# Performans
+cache-ttl=20
+query-cache-ttl=20
+negquery-cache-ttl=60
+PDNSCONF
+
+    # API key'i kaydet
+    echo "$PDNS_API_KEY" > /etc/ospanel/pdns_api_key
+    chmod 600 /etc/ospanel/pdns_api_key
+
+    systemctl enable pdns 2>/dev/null || true
+    systemctl restart pdns 2>/dev/null || true
+
+    log_info "PowerDNS kuruldu (SQLite backend, API: :8081)"
 }
 
 # ---------------------------------------------------------------------------
@@ -711,7 +788,7 @@ main() {
     echo "║  ✅ PHP LSAPI (7.4, 8.0-8.4)                     ║"
     echo "║  ✅ MariaDB (3306)                               ║"
     echo "║  ✅ Postfix + Dovecot (25, 143, 993)             ║"
-    echo "║  ✅ BIND9 DNS (53)                               ║"
+    echo "║  ✅ PowerDNS (53) + SQLite + REST API           ║"
     echo "║  ✅ SpamAssassin                                 ║"
     echo "║  ✅ phpMyAdmin                                   ║"
     echo "║  ✅ Redis Cache (256MB)                          ║"
