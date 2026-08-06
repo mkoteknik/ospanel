@@ -39,3 +39,5 @@ tamam
 .env
 .env.local
 .env.*.local
+*.deb
+*.rpm
