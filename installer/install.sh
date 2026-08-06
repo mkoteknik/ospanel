@@ -46,7 +46,7 @@ OSPANEL_CONFIG="/etc/ospanel"
 # Repo'dan kurulum YOK, tüm kritik paketler sabit sürüm
 # =====================================================================
 PKG_BASE="https://github.com/mkoteknik/ospanel/releases/latest/download"
-OLS_DEB_FALLBACK="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_1.8.2-1_amd64.deb"
+OLS_DEB_FALLBACK="http://rpms.litespeedtech.com/debian/pool/main/jammy/openlitespeed_1.9.1-2+jammy_amd64.deb"
 OLS_RPM_FALLBACK="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-1.8.2-1.el8.x86_64.rpm"
 
 # Ortak indirme fonksiyonu: önce repodan, sonra fallback
@@ -167,7 +167,7 @@ install_ols() {
 
     if [[ $OLS_INSTALLED -eq 0 ]]; then
         log_error "OpenLiteSpeed kurulamadı! Sabit paket URL'leri kontrol edin."
-        log_error "URL: $OLS_DEB_URL"
+        log_error "URL: $OLS_DEB_FALLBACK"
         exit 1
     fi
 
