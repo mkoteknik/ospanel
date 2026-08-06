@@ -41,23 +41,36 @@ OSPANEL_DATA="/var/lib/ospanel"
 OSPANEL_CONFIG="/etc/ospanel"
 
 # =====================================================================
-# SABİT PAKET VERSİYONLARI - Test edilmiş, uyumlu sürümler
-# Repo'dan kurulum YOK, tüm kritik paketler sabit URL'den indirilir
+# SABİT PAKET SİSTEMİ
+# Öncelik: 1) GitHub repodaki packages/ klasörü  2) Direkt URL (fallback)
+# Repo'dan kurulum YOK, tüm kritik paketler sabit sürüm
 # =====================================================================
-OLS_VERSION="1.8.2"
-OLS_DEB_URL="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_${OLS_VERSION}-1_amd64.deb"
-OLS_RPM_URL="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-${OLS_VERSION}-1.el8.x86_64.rpm"
+PKG_BASE="https://raw.githubusercontent.com/mkoteknik/ospanel/main/packages"
+OLS_DEB_FALLBACK="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_1.8.2-1_amd64.deb"
+OLS_RPM_FALLBACK="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-1.8.2-1.el8.x86_64.rpm"
 
-# PHP LSAPI sürümleri (OLS ile uyumlu)
-LSAPI_BASE_URL="https://rpms.litespeedtech.com/debian/pool/main"
-declare -A LSAPI_PACKAGES
-LSAPI_PACKAGES=(
-    ["82"]="lsphp82_8.2.24-1_amd64.deb"
-    ["83"]="lsphp83_8.3.12-1_amd64.deb"
-    ["84"]="lsphp84_8.4.0-1_amd64.deb"
-)
+# Ortak indirme fonksiyonu: önce repodan, sonra fallback
+download_pkg() {
+    local name="$1"
+    local fallback_url="$2"
+    local dest="$3"
 
-PMA_URL="https://www.adminer.org/latest.php"  # Adminer her zaman son sürüm (tek dosya, risk yok)
+    # Önce repodan dene
+    if curl -fsSL -o "$dest" "${PKG_BASE}/${name}" 2>/dev/null; then
+        log_info "  ✓ Repodan indirildi: $name"
+        return 0
+    fi
+
+    # Fallback URL dene
+    if [[ -n "$fallback_url" ]]; then
+        log_warn "  Repoda yok, fallback deneniyor: $fallback_url"
+        if curl -fsSL -o "$dest" "$fallback_url" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
 
 log_info()  { echo -e "${GREEN}[✓]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
@@ -140,39 +153,14 @@ install_ols() {
     local OLS_INSTALLED=0
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        # === Ubuntu / Debian: direkt .deb indir ===
-        log_info "OLS v${OLS_VERSION} .deb indiriliyor: $OLS_DEB_URL"
-        if curl -fsSL -o /tmp/ols.deb "$OLS_DEB_URL" 2>/dev/null; then
+        # === Ubuntu / Debian: repodaki .deb'i kullan ===
+        if download_pkg "openlitespeed.deb" "$OLS_DEB_FALLBACK" /tmp/ols.deb; then
             dpkg -i /tmp/ols.deb 2>/dev/null && OLS_INSTALLED=1
-            apt-get install -f -y -qq 2>/dev/null || true  # bağımlılıkları düzelt
+            apt-get install -f -y -qq 2>/dev/null || true
         fi
-
-        # Fallback: bir üst sürümü dene
-        if [[ $OLS_INSTALLED -eq 0 ]]; then
-            for ver in 1.8.1 1.8.0 1.7.19; do
-                local FB_URL="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_${ver}-1_amd64.deb"
-                log_warn "v${OLS_VERSION} bulunamadı, $ver deneniyor..."
-                if curl -fsSL -o /tmp/ols.deb "$FB_URL" 2>/dev/null; then
-                    dpkg -i /tmp/ols.deb 2>/dev/null && OLS_INSTALLED=1 && break
-                fi
-            done
-        fi
-
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        # === Rocky / Alma: direkt .rpm indir ===
-        log_info "OLS v${OLS_VERSION} .rpm indiriliyor..."
-        if curl -fsSL -o /tmp/ols.rpm "$OLS_RPM_URL" 2>/dev/null; then
+        if download_pkg "openlitespeed.rpm" "$OLS_RPM_FALLBACK" /tmp/ols.rpm; then
             rpm -ivh /tmp/ols.rpm 2>/dev/null && OLS_INSTALLED=1
-        fi
-
-        if [[ $OLS_INSTALLED -eq 0 ]]; then
-            for ver in 1.8.1 1.8.0; do
-                local FB_URL="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-${ver}-1.el8.x86_64.rpm"
-                log_warn "v${OLS_VERSION} bulunamadı, $ver deneniyor..."
-                if curl -fsSL -o /tmp/ols.rpm "$FB_URL" 2>/dev/null; then
-                    rpm -ivh /tmp/ols.rpm 2>/dev/null && OLS_INSTALLED=1 && break
-                fi
-            done
         fi
     fi
 
@@ -245,31 +233,19 @@ install_php() {
                 continue
             fi
 
-            local PKG_NAME="lsphp${ver}"
-            # Önce sabit sürüm .deb olarak dene
-            local DEB_FILE="${PKG_NAME}_*_amd64.deb"
-            local DEB_URL="${LSAPI_DIR}/${DEB_FILE}"
-
             log_info "PHP ${ver:0:1}.${ver:1} LSAPI indiriliyor..."
-
-            # Sabit URL'den indirmeyi dene
-            if curl -fsSL "$LSAPI_DIR/" 2>/dev/null | grep -o "lsphp${ver}_.*_amd64.deb" | head -1 > /tmp/lsphp_file.txt; then
-                local ACTUAL_FILE=$(cat /tmp/lsphp_file.txt)
-                if [[ -n "$ACTUAL_FILE" ]]; then
-                    curl -fsSL -o "/tmp/${ACTUAL_FILE}" "${LSAPI_DIR}/${ACTUAL_FILE}" 2>/dev/null && {
-                        dpkg -i "/tmp/${ACTUAL_FILE}" 2>/dev/null && {
-                            log_info "  PHP ${ver:0:1}.${ver:1} ✓"
-                            ((INSTALLED_COUNT++))
-                            continue
-                        }
-                    }
-                fi
+            local DEB_NAME="lsphp${ver}.deb"
+            if download_pkg "$DEB_NAME" "" /tmp/lsphp.deb; then
+                dpkg -i /tmp/lsphp.deb 2>/dev/null && {
+                    log_info "  PHP ${ver:0:1}.${ver:1} ✓"
+                    ((INSTALLED_COUNT++))
+                    continue
+                }
             fi
 
-            # Fallback: apt ile dene (son çare)
-            log_warn "  Sabit paket bulunamadı, apt deneniyor..."
-            apt-get install -y -qq "$PKG_NAME" 2>/dev/null && {
-                log_info "  PHP ${ver:0:1}.${ver:1} ✓ (apt fallback)"
+            # Fallback: apt
+            log_warn "  Paket bulunamadı, apt deneniyor..."
+            apt-get install -y -qq "lsphp${ver}" 2>/dev/null && {
                 ((INSTALLED_COUNT++))
             } || log_warn "  PHP ${ver:0:1}.${ver:1} kurulamadı"
         done
@@ -658,13 +634,10 @@ install_adminer() {
 
     # En son Adminer sürümünü indir (tek PHP dosyası ~500KB)
     # MySQL, PostgreSQL, SQLite, MongoDB, Elasticsearch hepsini destekler
-    if curl -fsSL -o "$ADMINER_FILE" "https://www.adminer.org/latest.php" 2>/dev/null; then
+    if download_pkg "adminer.php" "https://www.adminer.org/latest.php" "$ADMINER_FILE"; then
         chmod 644 "$ADMINER_FILE"
         log_info "Adminer kuruldu: $ADMINER_FILE (tek dosya, ~500KB)"
         log_info "Adminer URL: http://SUNUCU-IP/adminer/"
-    elif curl -fsSL -o "$ADMINER_FILE" "https://github.com/vrana/adminer/releases/download/v4.8.1/adminer-4.8.1.php" 2>/dev/null; then
-        chmod 644 "$ADMINER_FILE"
-        log_info "Adminer v4.8.1 kuruldu (fallback)"
     else
         log_warn "Adminer indirilemedi, atlanıyor"
     fi
