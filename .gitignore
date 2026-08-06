@@ -41,3 +41,5 @@ tamam
 .env.*.local
 *.deb
 *.rpm
+packages/*.tar.gz
+packages/*.deb
