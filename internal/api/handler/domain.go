@@ -13,6 +13,7 @@ import (
 	"github.com/mkoteknik/ospanel/internal/adapter/dns"
 	"github.com/mkoteknik/ospanel/internal/adapter/email"
 	"github.com/mkoteknik/ospanel/internal/adapter/ols"
+	ssl2 "github.com/mkoteknik/ospanel/internal/adapter/ssl"
 	"github.com/mkoteknik/ospanel/internal/adapter/system"
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
 	"github.com/mkoteknik/ospanel/internal/model"
@@ -259,17 +260,50 @@ func (h *DomainHandler) InstallSSL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Type string `json:"type"`
+		Type  string `json:"type"`
+		Email string `json:"email"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	if req.Type == "" {
 		req.Type = "lets_encrypt"
 	}
+	if req.Email == "" {
+		req.Email = "admin@" + domain.Domain
+	}
 
-	h.log.Infow("ssl kurulumu başlatıldı", "domain", domain.Domain, "type", req.Type)
+	// Let's Encrypt ile sertifika al
+	acme := ssl2.NewACMEClient()
+	if acme.IsAvailable() {
+		if err := acme.IssueCertificate(domain.Domain, domain.DocumentRoot, req.Email); err != nil {
+			h.log.Errorw("ssl kurulumu başarısız", "domain", domain.Domain, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "SSL kurulamadı: " + err.Error()})
+			return
+		}
 
+		// Domain SSL durumunu güncelle
+		domain.SSLenabled = true
+		h.store.UpdateDomain(r.Context(), domain)
+
+		// OLS reload (certbot hook yapar ama yine de)
+		if h.ols != nil {
+			h.ols.Reload()
+		}
+
+		certInfo, _ := acme.CheckCertificate(domain.Domain)
+
+		h.log.Infow("ssl kuruldu", "domain", domain.Domain, "issuer", "Let's Encrypt")
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"message":    "SSL başarıyla kuruldu!",
+			"domain":     domain.Domain,
+			"cert_info":  certInfo,
+			"site_url":   "https://" + domain.Domain,
+		})
+		return
+	}
+
+	h.log.Warnw("certbot kurulu değil, SSL kurulamadı", "domain", domain.Domain)
 	writeJSON(w, http.StatusAccepted, map[string]string{
-		"message": "SSL kurulumu başlatıldı - " + req.Type,
+		"message": "SSL kurulumu Linux sunucuda aktif olacak (certbot gerekli)",
 	})
 }
 
