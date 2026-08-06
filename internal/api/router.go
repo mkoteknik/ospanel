@@ -163,6 +163,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/monitor/stats", monitorH.Stats)
 			r.Get("/monitor/ws", monitorH.LiveStats)
 
+			// Hostname (public - bilgi amaçlı)
+			r.Get("/server/hostname", adminH.GetHostname)
+			r.Put("/server/hostname", adminH.SetHostname)
+
 			// Admin only
 			r.Group(func(r chi.Router) {
 				r.Use(apimw.RequireAdmin())

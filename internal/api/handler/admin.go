@@ -3,7 +3,9 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -22,6 +24,59 @@ type AdminHandler struct {
 // NewAdminHandler yeni AdminHandler oluşturur
 func NewAdminHandler(s store.Store, log *logger.Logger) *AdminHandler {
 	return &AdminHandler{store: s, log: log}
+}
+
+// GetHostname sunucu hostname bilgisini döndürür
+func (h *AdminHandler) GetHostname(w http.ResponseWriter, r *http.Request) {
+	out, _ := exec.Command("hostnamectl", "--static").CombinedOutput()
+	out2, _ := exec.Command("hostname", "-f").CombinedOutput()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"hostname":   strings.TrimSpace(string(out)),
+		"fqdn":       strings.TrimSpace(string(out2)),
+		"ip":         getServerIP(),
+	})
+}
+
+// SetHostname sunucu hostname'ini değiştirir
+func (h *AdminHandler) SetHostname(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hostname string `json:"hostname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Hostname == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz hostname"})
+		return
+	}
+
+	// IP kontrolü - hostname'in DNS'te bu IP'ye çözümlendiğini kontrol et
+	// (production'da daha sıkı kontrol yapılabilir)
+
+	cmd := exec.Command("hostnamectl", "set-hostname", req.Hostname)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		h.log.Errorw("hostname değiştirilemedi", "error", err, "out", string(out))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Hostname değiştirilemedi: " + string(out)})
+		return
+	}
+
+	// Postfix'i güncelle
+	domain := req.Hostname
+	if idx := strings.Index(domain, "."); idx != -1 {
+		domain = domain[idx+1:]
+		exec.Command("postconf", "-e", "myhostname = "+req.Hostname).Run()
+		exec.Command("postconf", "-e", "mydomain = "+domain).Run()
+		exec.Command("systemctl", "reload", "postfix").Run()
+	}
+
+	h.log.Infow("hostname değiştirildi", "hostname", req.Hostname)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Hostname değiştirildi: " + req.Hostname})
+}
+
+func getServerIP() string {
+	out, _ := exec.Command("hostname", "-I").CombinedOutput()
+	ips := strings.Fields(string(out))
+	if len(ips) > 0 {
+		return ips[0]
+	}
+	return "127.0.0.1"
 }
 
 // ListUsers tüm kullanıcıları listeler
