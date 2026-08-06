@@ -31,19 +31,17 @@ type Container struct {
 // NewDockerClient yeni Docker client oluşturur
 func NewDockerClient() *DockerClient {
 	// Docker veya Podman socket'ini bul
-	socket := "/var/run/docker.sock"
+	socket := "/run/podman/podman.sock"
 	if _, err := os.Stat(socket); os.IsNotExist(err) {
-		// Podman dene (rootless)
-		home := os.Getenv("HOME")
-		if home != "" {
-			podmanSocket := home + "/.local/share/containers/podman/machine/podman.sock"
-			if _, err := os.Stat(podmanSocket); err == nil {
-				socket = podmanSocket
+		socket = "/var/run/docker.sock"
+		if _, err := os.Stat(socket); os.IsNotExist(err) {
+			home := os.Getenv("HOME")
+			if home != "" {
+				podmanSocket := home + "/.local/share/containers/podman/machine/podman.sock"
+				if _, err := os.Stat(podmanSocket); err == nil {
+					socket = podmanSocket
+				}
 			}
-		}
-		altSocket := "/run/podman/podman.sock"
-		if _, err := os.Stat(altSocket); err == nil {
-			socket = altSocket
 		}
 	}
 
