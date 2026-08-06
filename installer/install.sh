@@ -788,6 +788,34 @@ WDSVCEOF
 }
 
 # ---------------------------------------------------------------------------
+# SnappyMail Webmail kurulumu
+# ---------------------------------------------------------------------------
+install_webmail() {
+    log_step "SnappyMail Webmail kuruluyor..."
+
+    local WEBMAIL_DIR="/usr/local/lsws/Example/html/webmail"
+
+    if [[ -f "$WEBMAIL_DIR/index.php" ]]; then
+        log_info "Webmail zaten kurulu, atlanıyor"
+        return
+    fi
+
+    mkdir -p "$WEBMAIL_DIR"
+    cd /tmp
+
+    # SnappyMail son sürüm
+    local SNAPPY_URL="https://github.com/the-djmaze/snappymail/releases/download/v2.38.2/snappymail-2.38.2.tar.gz"
+    if curl -fsSL -o snappymail.tar.gz "$SNAPPY_URL" 2>/dev/null; then
+        tar xzf snappymail.tar.gz -C "$WEBMAIL_DIR" --strip-components=1 2>/dev/null
+        chown -R www-data:www-data "$WEBMAIL_DIR" 2>/dev/null || true
+        log_info "SnappyMail v2.38.2 kuruldu: $WEBMAIL_DIR"
+        log_info "Webmail URL: http://SUNUCU-IP/webmail/"
+    else
+        log_warn "SnappyMail indirilemedi, atlanıyor"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Fail2ban konfigürasyonu
 # ---------------------------------------------------------------------------
 configure_fail2ban() {
@@ -1044,6 +1072,7 @@ main() {
     install_redis || log_warn "Redis atlandı"
     install_container_runtime || log_warn "Podman atlandı"
     install_adminer || log_warn "Adminer atlandı"
+    install_webmail || log_warn "Webmail atlandı"
     install_ospanel || log_error "Panel binary kurulamadı!"
     install_service || log_error "systemd servisi kurulamadı!"
     configure_firewall || log_warn "Firewall atlandı"
