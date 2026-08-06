@@ -255,48 +255,229 @@ install_php() {
 }
 
 # ---------------------------------------------------------------------------
-# Dovecot + Postfix kurulumu
+# Postfix + Dovecot + MariaDB Virtual Users + OpenDKIM
 # ---------------------------------------------------------------------------
 install_email_services() {
-    log_step "Email servisleri kuruluyor (Postfix + Dovecot)..."
+    log_step "Email sunucusu kuruluyor (Postfix + Dovecot + MariaDB + DKIM)..."
 
+    # === Paketler ===
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        # Postfix (non-interactive)
         export DEBIAN_FRONTEND=noninteractive
-        echo "postfix postfix/mailname string localhost" | debconf-set-selections 2>/dev/null || true
+        echo "postfix postfix/mailname string $(hostname -f 2>/dev/null || echo localhost)" | debconf-set-selections 2>/dev/null || true
         echo "postfix postfix/main_mailer_type string 'Internet Site'" | debconf-set-selections 2>/dev/null || true
-        apt-get install -y -qq postfix dovecot-core dovecot-imapd dovecot-pop3d 2>/dev/null || true
+        apt-get install -y -qq postfix postfix-mysql dovecot-core dovecot-imapd dovecot-pop3d dovecot-mysql opendkim opendkim-tools 2>/dev/null || true
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        dnf install -y postfix dovecot 2>/dev/null || true
+        dnf install -y postfix dovecot dovecot-mysql opendkim 2>/dev/null || true
     fi
 
-    # Postfix konfigürasyon
-    if [[ -f /etc/postfix/main.cf ]]; then
-        # Temel güvenli konfigürasyon
-        postconf -e "smtpd_banner = \$myhostname ESMTP OpenSpeed Panel" 2>/dev/null || true
-        postconf -e "smtpd_tls_security_level = may" 2>/dev/null || true
-        postconf -e "smtp_tls_security_level = may" 2>/dev/null || true
-        postconf -e "home_mailbox = Maildir/" 2>/dev/null || true
-        postconf -e "mailbox_command =" 2>/dev/null || true
-        log_info "Postfix yapılandırıldı"
+    local MAIL_DB="mailserver"
+    local MAIL_DB_USER="mailuser"
+    local MAIL_DB_PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '=+/' | head -c 20)
+
+    # === MariaDB: email veritabanı ve kullanıcı ===
+    log_info "Email veritabanı oluşturuluyor..."
+    mysql -e "CREATE DATABASE IF NOT EXISTS ${MAIL_DB};" 2>/dev/null || true
+    mysql -e "CREATE USER IF NOT EXISTS '${MAIL_DB_USER}'@'localhost' IDENTIFIED BY '${MAIL_DB_PASS}';" 2>/dev/null || true
+    mysql -e "GRANT ALL PRIVILEGES ON ${MAIL_DB}.* TO '${MAIL_DB_USER}'@'localhost';" 2>/dev/null || true
+    mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+
+    mysql "$MAIL_DB" << SQLEOF
+CREATE TABLE IF NOT EXISTS virtual_domains (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS virtual_users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    domain_id INT NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    maildir VARCHAR(255) NOT NULL,
+    quota INT NOT NULL DEFAULT 1024,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS virtual_aliases (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    domain_id INT NOT NULL,
+    source VARCHAR(255) NOT NULL,
+    destination VARCHAR(255) NOT NULL,
+    FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SQLEOF
+
+    log_info "Email veritabanı hazır (${MAIL_DB})"
+
+    # === Postfix: virtual domain/user konfigürasyonu ===
+    local MAIL_ROOT="/var/mail/vhosts"
+    mkdir -p "$MAIL_ROOT"
+    groupadd -f vmail 2>/dev/null || true
+    useradd -g vmail -d /var/mail -s /sbin/nologin vmail 2>/dev/null || true
+    chown -R vmail:vmail "$MAIL_ROOT"
+
+    # MariaDB bağlantı dosyaları
+    local MYSQL_CFG_DIR="/etc/postfix/mysql"
+    mkdir -p "$MYSQL_CFG_DIR"
+
+    cat > "${MYSQL_CFG_DIR}/virtual-mailbox-domains.cf" << MYSQLCFG
+user = ${MAIL_DB_USER}
+password = ${MAIL_DB_PASS}
+hosts = 127.0.0.1
+dbname = ${MAIL_DB}
+query = SELECT 1 FROM virtual_domains WHERE name='%s'
+MYSQLCFG
+
+    cat > "${MYSQL_CFG_DIR}/virtual-mailbox-maps.cf" << MYSQLCFG
+user = ${MAIL_DB_USER}
+password = ${MAIL_DB_PASS}
+hosts = 127.0.0.1
+dbname = ${MAIL_DB}
+query = SELECT maildir FROM virtual_users WHERE email='%s'
+MYSQLCFG
+
+    cat > "${MYSQL_CFG_DIR}/virtual-alias-maps.cf" << MYSQLCFG
+user = ${MAIL_DB_USER}
+password = ${MAIL_DB_PASS}
+hosts = 127.0.0.1
+dbname = ${MAIL_DB}
+query = SELECT destination FROM virtual_aliases WHERE source='%s'
+MYSQLCFG
+
+    # Postfix ana konfigürasyon
+    postconf -e "myhostname = $(hostname -f 2>/dev/null || hostname)"
+    postconf -e "mydestination = localhost"
+    postconf -e "mynetworks = 127.0.0.0/8"
+    postconf -e "inet_interfaces = all"
+    postconf -e "message_size_limit = 30720000"
+
+    # Virtual domain/user
+    postconf -e "virtual_mailbox_domains = mysql:/etc/postfix/mysql/virtual-mailbox-domains.cf"
+    postconf -e "virtual_mailbox_maps = mysql:/etc/postfix/mysql/virtual-mailbox-maps.cf"
+    postconf -e "virtual_alias_maps = mysql:/etc/postfix/mysql/virtual-alias-maps.cf"
+    postconf -e "virtual_mailbox_base = ${MAIL_ROOT}"
+    postconf -e "virtual_minimum_uid = 150"
+    postconf -e "virtual_uid_maps = static:150"
+    postconf -e "virtual_gid_maps = static:8"
+    postconf -e "virtual_transport = dovecot"
+
+    # TLS/SSL
+    postconf -e "smtpd_tls_security_level = may"
+    postconf -e "smtp_tls_security_level = may"
+    postconf -e "smtpd_tls_auth_only = yes"
+    postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem"
+    postconf -e "smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key"
+
+    # Dovecot teslim
+    postconf -e "dovecot_destination_recipient_limit = 1"
+    postconf -e "smtpd_sasl_type = dovecot"
+    postconf -e "smtpd_sasl_path = private/auth"
+    postconf -e "smtpd_sasl_auth_enable = yes"
+
+    # Master.cf - Dovecot LMTP
+    if ! grep -q "dovecot" /etc/postfix/master.cf 2>/dev/null; then
+        cat >> /etc/postfix/master.cf << 'MASTERCF'
+dovecot   unix  -       n       n       -       -       pipe
+  flags=DRhu user=vmail:vmail argv=/usr/lib/dovecot/deliver -f ${sender} -d ${recipient}
+MASTERCF
     fi
 
-    # Dovecot konfigürasyon
-    if [[ -f /etc/dovecot/dovecot.conf ]]; then
-        # Maildir formatı
-        if [[ -f /etc/dovecot/conf.d/10-mail.conf ]]; then
-            sed -i 's|^#\?mail_location =.*|mail_location = maildir:~/Maildir|' /etc/dovecot/conf.d/10-mail.conf 2>/dev/null || true
+    log_info "Postfix yapılandırıldı (MariaDB virtual users)"
+
+    # === Dovecot konfigürasyon ===
+    local DOVECOT_MAIL_DIR="$MAIL_ROOT/%d/%n"
+
+    # 10-mail.conf
+    if [[ -f /etc/dovecot/conf.d/10-mail.conf ]]; then
+        sed -i "s|^#\?mail_location =.*|mail_location = maildir:${DOVECOT_MAIL_DIR}|" /etc/dovecot/conf.d/10-mail.conf 2>/dev/null
+        sed -i 's|^#\?mail_uid =.*|mail_uid = 150|' /etc/dovecot/conf.d/10-mail.conf 2>/dev/null
+        sed -i 's|^#\?mail_gid =.*|mail_gid = 8|' /etc/dovecot/conf.d/10-mail.conf 2>/dev/null
+    fi
+
+    # 10-auth.conf
+    if [[ -f /etc/dovecot/conf.d/10-auth.conf ]]; then
+        sed -i 's|^#\?disable_plaintext_auth =.*|disable_plaintext_auth = no|' /etc/dovecot/conf.d/10-auth.conf 2>/dev/null
+        sed -i 's|^auth_mechanisms =.*|auth_mechanisms = plain login|' /etc/dovecot/conf.d/10-auth.conf 2>/dev/null
+    fi
+
+    # Dovecot SQL auth
+    cat > /etc/dovecot/dovecot-sql.conf.ext << DOVECOTSQL
+driver = mysql
+connect = host=127.0.0.1 dbname=${MAIL_DB} user=${MAIL_DB_USER} password=${MAIL_DB_PASS}
+default_pass_scheme = SHA512-CRYPT
+password_query = SELECT email AS user, password FROM virtual_users WHERE email='%u'
+user_query = SELECT '${DOVECOT_MAIL_DIR}' AS mail, 150 AS uid, 8 AS gid FROM virtual_users WHERE email='%u'
+iterate_query = SELECT email AS user FROM virtual_users
+DOVECOTSQL
+
+    # 10-master.conf - Postfix SASL
+    if [[ -f /etc/dovecot/conf.d/10-master.conf ]]; then
+        if ! grep -q "Postfix smtp-auth" /etc/dovecot/conf.d/10-master.conf 2>/dev/null; then
+            cat >> /etc/dovecot/conf.d/10-master.conf << 'DOVEMASTER'
+
+# Postfix SASL
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0666
+    user = postfix
+    group = postfix
+  }
+}
+DOVEMASTER
         fi
-        log_info "Dovecot yapılandırıldı"
     fi
 
-    # Servisleri etkinleştir ve başlat
-    systemctl enable postfix 2>/dev/null || true
-    systemctl start postfix 2>/dev/null || true
-    systemctl enable dovecot 2>/dev/null || true
-    systemctl start dovecot 2>/dev/null || true
+    # SSL
+    if [[ -f /etc/dovecot/conf.d/10-ssl.conf ]]; then
+        sed -i 's|^#\?ssl =.*|ssl = yes|' /etc/dovecot/conf.d/10-ssl.conf 2>/dev/null || true
+    fi
 
-    log_info "Postfix + Dovecot kuruldu ve başlatıldı"
+    log_info "Dovecot yapılandırıldı (MariaDB auth)"
+
+    # === OpenDKIM ===
+    if command -v opendkim &>/dev/null; then
+        mkdir -p /etc/opendkim/keys
+        cat > /etc/opendkim.conf << 'DKIMEOF'
+Syslog yes
+UMask 002
+Mode sv
+KeyTable /etc/opendkim/KeyTable
+SigningTable /etc/opendkim/SigningTable
+ExternalIgnoreList /etc/opendkim/TrustedHosts
+InternalHosts /etc/opendkim/TrustedHosts
+Socket inet:8891@localhost
+DKIMEOF
+        touch /etc/opendkim/KeyTable /etc/opendkim/SigningTable /etc/opendkim/TrustedHosts
+        echo "127.0.0.1" > /etc/opendkim/TrustedHosts
+        echo "localhost" >> /etc/opendkim/TrustedHosts
+
+        postconf -e "milter_default_action = accept"
+        postconf -e "milter_protocol = 6"
+        postconf -e "smtpd_milters = inet:localhost:8891"
+        postconf -e "non_smtpd_milters = \$smtpd_milters"
+
+        systemctl enable opendkim 2>/dev/null || true
+        systemctl restart opendkim 2>/dev/null || true
+        log_info "OpenDKIM yapılandırıldı"
+    fi
+
+    # === Servisleri başlat ===
+    systemctl enable postfix 2>/dev/null || true
+    systemctl enable dovecot 2>/dev/null || true
+    systemctl restart postfix 2>/dev/null || true
+    systemctl restart dovecot 2>/dev/null || true
+
+    # Email bilgilerini kaydet
+    cat > /etc/ospanel/email_db.conf << DBEOF
+DB_NAME=${MAIL_DB}
+DB_USER=${MAIL_DB_USER}
+DB_PASS=${MAIL_DB_PASS}
+DBEOF
+    chmod 600 /etc/ospanel/email_db.conf
+
+    log_info "Email sunucusu tamamen kuruldu: Postfix + Dovecot + MariaDB + DKIM"
+    log_info "Virtual domain/user/alias - MariaDB tabanlı"
+    log_info "Konfigürasyon: /etc/ospanel/email_db.conf"
 }
 
 # ---------------------------------------------------------------------------
