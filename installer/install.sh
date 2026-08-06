@@ -25,7 +25,7 @@
 # ============================================================
 #
 
-set -euo pipefail
+set -uo pipefail
 
 # Renkler
 RED='\033[0;31m'
@@ -998,33 +998,34 @@ main() {
 
     detect_os
 
-    # Hostname ayarla
+    # Hostname kontrol
     SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "SUNUCU-IP")
     CURRENT_HOSTNAME=$(hostname 2>/dev/null || echo "localhost")
     log_info "Sunucu IP: $SERVER_IP"
     log_info "Hostname: $CURRENT_HOSTNAME"
     if [[ "$CURRENT_HOSTNAME" == "localhost" ]] || [[ "$CURRENT_HOSTNAME" == ubuntu* ]] || [[ "$CURRENT_HOSTNAME" == debian* ]]; then
-        log_warn "Hostname hala varsayılan. Sunucu adı: server veya panel.domain.com gibi ayarlanmalı."
-        log_warn "Önerilen: hostnamectl set-hostname server.siteniz.com"
+        log_warn "Hostname varsayılan. Önerilen: hostnamectl set-hostname server.siteniz.com"
     fi
 
+    # TÜM SERVİSLER - hata olsa bile devam et
+    log_info "Tüm servisler kuruluyor..."
     install_dependencies
-    install_ols
-    install_mariadb
-    secure_mariadb
-    install_php
-    install_email_services
-    install_spamassassin
-    install_dns_server
-    install_postgresql
-    install_redis
-    install_container_runtime
-    install_adminer
-    install_ospanel
-    install_service
-    configure_firewall
-    configure_fail2ban
-    install_htaccess_watchdog
+    install_ols || log_error "OLS kurulamadı!"
+    install_mariadb || log_warn "MariaDB kurulamadı"
+    secure_mariadb || log_warn "MariaDB güvenlik ayarları atlandı"
+    install_php || log_warn "PHP LSAPI kontrolü atlandı"
+    install_email_services || log_warn "Email servisleri atlandı"
+    install_spamassassin || log_warn "SpamAssassin atlandı"
+    install_dns_server || log_warn "PowerDNS atlandı"
+    install_postgresql || log_warn "PostgreSQL atlandı"
+    install_redis || log_warn "Redis atlandı"
+    install_container_runtime || log_warn "Podman atlandı"
+    install_adminer || log_warn "Adminer atlandı"
+    install_ospanel || log_error "Panel binary kurulamadı!"
+    install_service || log_error "systemd servisi kurulamadı!"
+    configure_firewall || log_warn "Firewall atlandı"
+    configure_fail2ban || log_warn "Fail2ban atlandı"
+    install_htaccess_watchdog || log_warn "Watchdog atlandı"
     create_admin_user
 
     # IP adresini al
