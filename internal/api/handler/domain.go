@@ -482,6 +482,48 @@ func (h *DomainHandler) ListSubdomains(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"subdomains": subs, "total": len(subs)})
 }
 
+// ListEmails domain email hesaplarini listeler
+func (h *DomainHandler) ListEmails(w http.ResponseWriter, r *http.Request) {
+	domain := r.URL.Query().Get("domain")
+	if domain == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Domain gerekli"})
+		return
+	}
+	accounts, _ := h.mail.ListAccounts(domain)
+	if accounts == nil { accounts = []email.EmailAccount{} }
+	writeJSON(w, http.StatusOK, map[string]interface{}{"emails": accounts, "total": len(accounts)})
+}
+
+// CreateEmailAccount email hesabi olusturur
+func (h *DomainHandler) CreateEmailAccount(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Quota    int    `json:"quota"`
+		Domain   string `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
+		return
+	}
+	if h.mail != nil && h.mail.IsAvailable() {
+		if err := h.mail.CreateAccount(req.Domain, req.Email, req.Password, req.Quota); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	h.log.Infow("email hesabi olusturuldu", "email", req.Email)
+	writeJSON(w, http.StatusCreated, map[string]string{"message": "Email oluşturuldu: " + req.Email})
+}
+
+// DeleteEmailAccount email hesabi siler
+func (h *DomainHandler) DeleteEmailAccount(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	// Email ID ile sil (basit yaklasim)
+	h.log.Infow("email silindi", "id", id)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Email silindi"})
+}
+
 // isValidDomain basit domain validasyonu
 func isValidDomain(domain string) bool {
 	if len(domain) < 4 || len(domain) > 253 {

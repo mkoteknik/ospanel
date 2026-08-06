@@ -88,6 +88,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/2fa/verify", totpH.Verify)
 			r.Delete("/2fa/disable", totpH.Disable)
 
+			// Email
+			r.Get("/emails", domainH.ListEmails)
+			r.Post("/emails", domainH.CreateEmailAccount)
+			r.Delete("/emails/{id}", domainH.DeleteEmailAccount)
+
 			// Domains
 			r.Get("/domains", domainH.List)
 			r.Post("/domains", domainH.Create)
