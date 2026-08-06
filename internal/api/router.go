@@ -96,6 +96,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/files/write", fileH.WriteFile)
 			r.Delete("/files", fileH.DeleteFile)
 			r.Post("/files/mkdir", fileH.CreateDir)
+			r.Get("/files/download", fileH.Download)
+			r.Post("/files/chmod", fileH.Chmod)
+			r.Post("/files/rename", fileH.Rename)
+			r.Post("/files/create", fileH.CreateFile)
 			r.Post("/files/archive", fileH.CreateArchive)
 			r.Post("/files/extract", fileH.ExtractArchive)
 
