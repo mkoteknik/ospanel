@@ -96,53 +96,92 @@ install_ols() {
     log_step "OpenLiteSpeed kuruluyor..."
 
     if [[ -f /usr/local/lsws/bin/lshttpd ]]; then
-        log_info "OpenLiteSpeed zaten kurulu, atlanıyor"
+        log_info "OpenLiteSpeed zaten kurulu (/usr/local/lsws mevcut), atlanıyor"
         return
     fi
 
-    if [[ "$PKG_MANAGER" == "apt" ]]; then
-        # OLS repo ekle
-        wget -q -O - https://repo.litespeed.sh/repo.key | apt-key add - 2>/dev/null || {
-            curl -fsSL https://repo.litespeed.sh/repo.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/litespeed.gpg 2>/dev/null || true
-        }
+    local OLS_INSTALLED=0
 
-        # Ubuntu/Debian için OLS repo
-        if [[ "$OS" == "ubuntu" ]]; then
-            codename=$(lsb_release -cs 2>/dev/null || echo "jammy")
-            echo "deb http://rpms.litespeedtech.com/debian/ $codename main" > /etc/apt/sources.list.d/lst_debian_repo.list
-        else
-            echo "deb http://rpms.litespeedtech.com/debian/ bookworm main" > /etc/apt/sources.list.d/lst_debian_repo.list
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        # === Ubuntu / Debian ===
+        log_info "LiteSpeed resmi reposu ekleniyor..."
+
+        # Resmi OLS repo scriptini kullan
+        wget -q -O /tmp/enable_lst_debian_repo.sh http://rpms.litespeedtech.com/debian/enable_lst_debian_repo.sh 2>/dev/null || \
+        curl -fsSL -o /tmp/enable_lst_debian_repo.sh http://rpms.litespeedtech.com/debian/enable_lst_debian_repo.sh
+
+        if [[ -f /tmp/enable_lst_debian_repo.sh ]]; then
+            bash /tmp/enable_lst_debian_repo.sh 2>/dev/null || true
+            apt-get update -qq 2>/dev/null || true
+            apt-get install -y -qq openlitespeed 2>/dev/null && OLS_INSTALLED=1
         fi
 
-        apt-get update -qq 2>/dev/null || true
-        apt-get install -y -qq openlitespeed 2>/dev/null || {
-            log_warn "OpenLiteSpeed repo'dan kurulamadı, manuel deneniyor..."
-            # Manuel kurulum
-            cd /tmp
-            curl -fsSL -o ols.tar.gz https://openlitespeed.org/download/latest
-            tar xzf ols.tar.gz
-            cd openlitespeed*
-            bash install.sh
-        }
+        # Repo başarısız olursa manuel .deb kurulumu dene
+        if [[ $OLS_INSTALLED -eq 0 ]]; then
+            log_warn "Repo kurulumu başarısız, manuel .deb deneniyor..."
+            local OLS_DEB_URL="https://openlitespeed.org/download/latest-deb"
+            # En son sürümü dene (1.8.x serisi)
+            for ver in 1.8.2 1.8.1 1.8.0 1.7.19; do
+                local DEB_URL="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_${ver}-1_amd64.deb"
+                log_info "OLS $ver deneniyor: $DEB_URL"
+                if curl -fsSL -o /tmp/ols.deb "$DEB_URL" 2>/dev/null; then
+                    dpkg -i /tmp/ols.deb 2>/dev/null && OLS_INSTALLED=1 && break
+                fi
+            done
+        fi
+
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        rpm -Uvh https://rpms.litespeedtech.com/centos/litespeed-repo-1.3-1.el8.noarch.rpm 2>/dev/null || true
-        dnf install -y openlitespeed 2>/dev/null || {
-            log_warn "OpenLiteSpeed repo'dan kurulamadı, manuel deneniyor..."
-            cd /tmp
-            curl -fsSL -o ols.tar.gz https://openlitespeed.org/download/latest
-            tar xzf ols.tar.gz
-            cd openlitespeed*
-            bash install.sh
-        }
+        # === Rocky / Alma / RHEL ===
+        log_info "LiteSpeed resmi reposu ekleniyor..."
+
+        # EL9 için
+        if [[ "$OS_VERSION" == "9"* ]]; then
+            rpm -Uvh http://rpms.litespeedtech.com/centos/litespeed-repo-1.4-1.el9.noarch.rpm 2>/dev/null || true
+        else
+            # EL8 için
+            rpm -Uvh http://rpms.litespeedtech.com/centos/litespeed-repo-1.4-1.el8.noarch.rpm 2>/dev/null || true
+        fi
+
+        dnf install -y openlitespeed 2>/dev/null && OLS_INSTALLED=1
+
+        # Repo başarısız olursa manuel .rpm kurulumu dene
+        if [[ $OLS_INSTALLED -eq 0 ]]; then
+            log_warn "Repo kurulumu başarısız, manuel .rpm deneniyor..."
+            for ver in 1.8.2 1.8.1 1.8.0; do
+                local RPM_URL="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-${ver}-1.el8.x86_64.rpm"
+                log_info "OLS $ver deneniyor..."
+                if curl -fsSL -o /tmp/ols.rpm "$RPM_URL" 2>/dev/null; then
+                    rpm -ivh /tmp/ols.rpm 2>/dev/null && OLS_INSTALLED=1 && break
+                fi
+            done
+        fi
+    fi
+
+    if [[ $OLS_INSTALLED -eq 0 ]]; then
+        log_error "OpenLiteSpeed kurulamadı!"
+        log_error "Manuel kurulum: https://docs.openlitespeed.org/installation"
+        exit 1
+    fi
+
+    # OLS admin şifresini ayarla (varsayılanı değiştir)
+    if [[ -f /usr/local/lsws/admin/misc/admpass.sh ]]; then
+        local OLS_ADMIN_PASS=$(openssl rand -base64 12 2>/dev/null | tr -d '=+/' | head -c 16)
+        echo -e "admin\n${OLS_ADMIN_PASS}\n${OLS_ADMIN_PASS}" | bash /usr/local/lsws/admin/misc/admpass.sh 2>/dev/null || true
+        echo "$OLS_ADMIN_PASS" > /etc/ospanel/ols_admin_pass
+        chmod 600 /etc/ospanel/ols_admin_pass
+        log_info "OLS WebAdmin şifresi ayarlandı: /etc/ospanel/ols_admin_pass"
     fi
 
     # OLS servisini başlat
     systemctl enable lsws 2>/dev/null || true
     systemctl start lsws 2>/dev/null || {
-        /usr/local/lsws/bin/lshttpd -k start 2>/dev/null || true
+        /usr/local/lsws/bin/lshttpd -k start 2>/dev/null || {
+            log_error "OLS başlatılamadı!"
+            exit 1
+        }
     }
 
-    log_info "OpenLiteSpeed kuruldu"
+    log_info "OpenLiteSpeed başarıyla kuruldu ve başlatıldı"
 }
 
 # ---------------------------------------------------------------------------
