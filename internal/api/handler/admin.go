@@ -8,9 +8,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
-	"github.com/openspeed-panel/ospanel/internal/pkg/logger"
-	"github.com/openspeed-panel/ospanel/internal/store"
+	"github.com/mkoteknik/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/pkg/logger"
+	"github.com/mkoteknik/ospanel/internal/store"
 )
 
 // AdminHandler admin panel işlemleri

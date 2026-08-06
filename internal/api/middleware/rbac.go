@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/model"
 )
 
 // RequireRole belirli roller için yetki kontrolü middleware'i

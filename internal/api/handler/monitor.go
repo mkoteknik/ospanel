@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/openspeed-panel/ospanel/internal/adapter/system"
-	"github.com/openspeed-panel/ospanel/internal/pkg/logger"
+	"github.com/mkoteknik/ospanel/internal/adapter/system"
+	"github.com/mkoteknik/ospanel/internal/pkg/logger"
 )
 
 var upgrader = websocket.Upgrader{

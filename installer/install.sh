@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # OpenSpeed Panel - Tek Komut Kurulum Scripti
-# https://github.com/openspeed-panel/ospanel
+# https://github.com/mkoteknik/ospanel
 #
 # Kullanım:
-#   curl -fsSL https://raw.githubusercontent.com/openspeed-panel/ospanel/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/mkoteknik/ospanel/main/install.sh | sudo bash
 #
 
 set -euo pipefail
@@ -201,9 +201,9 @@ install_ospanel() {
     esac
 
     if [[ "$OSPANEL_VERSION" == "latest" ]]; then
-        DOWNLOAD_URL="https://github.com/openspeed-panel/ospanel/releases/latest/download/ospanel-linux-${ARCH}.tar.gz"
+        DOWNLOAD_URL="https://github.com/mkoteknik/ospanel/releases/latest/download/ospanel-linux-${ARCH}.tar.gz"
     else
-        DOWNLOAD_URL="https://github.com/openspeed-panel/ospanel/releases/download/${OSPANEL_VERSION}/ospanel-linux-${ARCH}.tar.gz"
+        DOWNLOAD_URL="https://github.com/mkoteknik/ospanel/releases/download/${OSPANEL_VERSION}/ospanel-linux-${ARCH}.tar.gz"
     fi
 
     cd /tmp
@@ -213,7 +213,7 @@ install_ospanel() {
         log_info "Binary indirildi ve kuruldu"
     else
         log_warn "GitHub'dan indirilemedi. Eğer bu geliştirme kurulumu ise manuel build yapın."
-        log_warn "  git clone https://github.com/openspeed-panel/ospanel.git"
+        log_warn "  git clone https://github.com/mkoteknik/ospanel.git"
         log_warn "  cd ospanel && make build && sudo make install"
         # Geliştirme için: ortam değişkeninden path al
         if [[ -n "${OSPANEL_DEV_BINARY:-}" ]] && [[ -f "$OSPANEL_DEV_BINARY" ]]; then
@@ -271,7 +271,7 @@ install_service() {
     cat > /etc/systemd/system/ospanel.service << SYSTEMDEOF
 [Unit]
 Description=OpenSpeed Panel
-Documentation=https://github.com/openspeed-panel/ospanel
+Documentation=https://github.com/mkoteknik/ospanel
 After=network.target lsws.service
 
 [Service]

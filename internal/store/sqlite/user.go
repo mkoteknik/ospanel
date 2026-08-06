@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/model"
 )
 
 // scanTime RFC3339 string'i time.Time'e çevirir

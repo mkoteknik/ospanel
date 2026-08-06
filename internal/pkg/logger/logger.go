@@ -6,7 +6,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/openspeed-panel/ospanel/internal/pkg/config"
+	"github.com/mkoteknik/ospanel/internal/pkg/config"
 )
 
 // Logger zap logger wrapper

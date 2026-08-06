@@ -8,6 +8,9 @@ cmd/ospanel/web-dist/
 web/node_modules/
 web/dist/
 
+# Data
+data/
+
 # IDE
 .idea/
 .vscode/
@@ -29,6 +32,8 @@ coverage.html
 /tmp/
 *.tmp
 *.log
+*.pem
+tamam
 
 # Env
 .env

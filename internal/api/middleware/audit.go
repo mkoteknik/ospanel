@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
-	"github.com/openspeed-panel/ospanel/internal/store"
+	"github.com/mkoteknik/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/store"
 )
 
 // AuditLogger audit log middleware'i

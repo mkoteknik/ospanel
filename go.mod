@@ -1,4 +1,4 @@
-module github.com/openspeed-panel/ospanel
+module github.com/mkoteknik/ospanel
 
 go 1.26.5
 

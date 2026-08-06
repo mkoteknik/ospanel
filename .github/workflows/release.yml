@@ -64,11 +64,11 @@ jobs:
 
             ### 🔧 Tek Komut Kurulum
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/openspeed-panel/ospanel/main/install.sh | sudo bash
+            curl -fsSL https://raw.githubusercontent.com/mkoteknik/ospanel/main/install.sh | sudo bash
             ```
 
             ### ✨ Değişiklikler
-            Detaylı değişiklikler için [CHANGELOG](https://github.com/openspeed-panel/ospanel/blob/main/CHANGELOG.md) dosyasına bakın.
+            Detaylı değişiklikler için [CHANGELOG](https://github.com/mkoteknik/ospanel/blob/main/CHANGELOG.md) dosyasına bakın.
           files: |
             build/ospanel-linux-amd64.tar.gz
             build/ospanel-linux-arm64.tar.gz

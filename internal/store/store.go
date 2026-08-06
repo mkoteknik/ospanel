@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/model"
 )
 
 // Store tüm veri erişim işlemlerini tanımlayan arayüz

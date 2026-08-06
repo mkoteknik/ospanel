@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/model"
 )
 
 // CreateDomain yeni domain oluşturur

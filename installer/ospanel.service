@@ -1,6 +1,6 @@
 [Unit]
 Description=OpenSpeed Panel
-Documentation=https://github.com/openspeed-panel/ospanel
+Documentation=https://github.com/mkoteknik/ospanel
 After=network.target lsws.service
 
 [Service]

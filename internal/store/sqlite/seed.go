@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/model"
 )
 
 // SeedDefaultAdmin varsayılan admin kullanıcısını oluşturur

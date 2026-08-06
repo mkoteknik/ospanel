@@ -12,10 +12,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/argon2"
 
-	"github.com/openspeed-panel/ospanel/internal/api/middleware"
-	"github.com/openspeed-panel/ospanel/internal/model"
-	"github.com/openspeed-panel/ospanel/internal/pkg/logger"
-	"github.com/openspeed-panel/ospanel/internal/store"
+	"github.com/mkoteknik/ospanel/internal/api/middleware"
+	"github.com/mkoteknik/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/pkg/logger"
+	"github.com/mkoteknik/ospanel/internal/store"
 )
 
 // AuthHandler kimlik doğrulama işlemleri

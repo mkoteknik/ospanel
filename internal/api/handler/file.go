@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openspeed-panel/ospanel/internal/api/middleware"
-	"github.com/openspeed-panel/ospanel/internal/pkg/logger"
-	"github.com/openspeed-panel/ospanel/internal/store"
+	"github.com/mkoteknik/ospanel/internal/api/middleware"
+	"github.com/mkoteknik/ospanel/internal/pkg/logger"
+	"github.com/mkoteknik/ospanel/internal/store"
 )
 
 // FileHandler dosya yöneticisi

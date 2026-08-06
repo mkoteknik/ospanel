@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/openspeed-panel/ospanel/internal/pkg/logger"
+	"github.com/mkoteknik/ospanel/internal/pkg/logger"
 )
 
 // WithGlobalMiddleware global middleware'leri uygular

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/openspeed-panel/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/model"
 )
 
 // CreateBackupJob yedekleme işi oluşturur

@@ -4,10 +4,10 @@
 
 **Modern, Hızlı, %100 Ücretsiz Hosting Kontrol Paneli**
 
-[![Build](https://img.shields.io/github/actions/workflow/status/openspeed-panel/ospanel/build.yml)](https://github.com/openspeed-panel/ospanel/actions)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/openspeed-panel/ospanel)](https://go.dev)
-[![License](https://img.shields.io/github/license/openspeed-panel/ospanel)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/openspeed-panel/ospanel)](https://github.com/openspeed-panel/ospanel/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/mkoteknik/ospanel/build.yml)](https://github.com/mkoteknik/ospanel/actions)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/mkoteknik/ospanel)](https://go.dev)
+[![License](https://img.shields.io/github/license/mkoteknik/ospanel)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/mkoteknik/ospanel)](https://github.com/mkoteknik/ospanel/releases)
 
 </div>
 
@@ -44,7 +44,7 @@ OpenSpeed Panel, **OpenLiteSpeed** web sunucusu ile %100 uyumlu, cPanel/Plesk al
 ## 🚀 Tek Komut Kurulum
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openspeed-panel/ospanel/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/mkoteknik/ospanel/main/install.sh | sudo bash
 ```
 
 ### Desteklenen İşletim Sistemleri
@@ -60,7 +60,7 @@ curl -fsSL https://raw.githubusercontent.com/openspeed-panel/ospanel/main/instal
 
 ```bash
 # Repoyu klonla
-git clone https://github.com/openspeed-panel/ospanel.git
+git clone https://github.com/mkoteknik/ospanel.git
 cd ospanel
 
 # Gereksinimler: Go 1.22+, Node.js 20+

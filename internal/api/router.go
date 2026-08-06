@@ -7,10 +7,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/openspeed-panel/ospanel/internal/api/handler"
-	apimw "github.com/openspeed-panel/ospanel/internal/api/middleware"
-	"github.com/openspeed-panel/ospanel/internal/pkg/logger"
-	"github.com/openspeed-panel/ospanel/internal/store"
+	"github.com/mkoteknik/ospanel/internal/api/handler"
+	apimw "github.com/mkoteknik/ospanel/internal/api/middleware"
+	"github.com/mkoteknik/ospanel/internal/pkg/logger"
+	"github.com/mkoteknik/ospanel/internal/store"
 )
 
 // RouterConfig router konfigürasyonu
