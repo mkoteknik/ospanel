@@ -45,7 +45,7 @@ OSPANEL_CONFIG="/etc/ospanel"
 # Öncelik: 1) GitHub repodaki packages/ klasörü  2) Direkt URL (fallback)
 # Repo'dan kurulum YOK, tüm kritik paketler sabit sürüm
 # =====================================================================
-PKG_BASE="https://raw.githubusercontent.com/mkoteknik/ospanel/main/packages"
+PKG_BASE="https://github.com/mkoteknik/ospanel/releases/latest/download"
 OLS_DEB_FALLBACK="https://rpms.litespeedtech.com/debian/pool/main/openlitespeed_1.8.2-1_amd64.deb"
 OLS_RPM_FALLBACK="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-1.8.2-1.el8.x86_64.rpm"
 
