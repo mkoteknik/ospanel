@@ -83,6 +83,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Put("/domains/{id}", domainH.Update)
 			r.Delete("/domains/{id}", domainH.Delete)
 			r.Post("/domains/{id}/ssl", domainH.InstallSSL)
+			r.Get("/domains/{id}/subdomains", domainH.ListSubdomains)
+			r.Post("/domains/{id}/subdomains", domainH.CreateSubdomain)
 
 			// Databases
 			r.Get("/databases", databaseH.List)

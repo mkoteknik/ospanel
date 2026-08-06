@@ -15,6 +15,7 @@ const (
 type Domain struct {
 	ID              int64        `json:"id"`
 	UserID          int64        `json:"user_id"`
+	ParentID        *int64       `json:"parent_id,omitempty"` // Subdomain ise parent domain ID
 	Domain          string       `json:"domain"`
 	DocumentRoot    string       `json:"document_root"`
 	PHPVersion      string       `json:"php_version"`
@@ -25,6 +26,13 @@ type Domain struct {
 	Status          DomainStatus `json:"status"`
 	CreatedAt       time.Time    `json:"created_at"`
 	UpdatedAt       time.Time    `json:"updated_at"`
+}
+
+// CreateSubdomainRequest subdomain oluşturma isteği
+type CreateSubdomainRequest struct {
+	ParentID int64  `json:"parent_id"`
+	Subdomain string `json:"subdomain"` // sadece "blog" kısmı
+	PHPVersion string `json:"php_version"`
 }
 
 // CreateDomainRequest domain oluşturma isteği

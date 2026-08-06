@@ -32,6 +32,7 @@ type Store interface {
 	ListDomains(ctx context.Context, userID int64) ([]*model.Domain, error)
 	UpdateDomain(ctx context.Context, domain *model.Domain) error
 	DeleteDomain(ctx context.Context, id int64) error
+	ListSubdomains(ctx context.Context, parentID int64) ([]*model.Domain, error)
 
 	// Email
 	CreateEmail(ctx context.Context, email *model.Email) error

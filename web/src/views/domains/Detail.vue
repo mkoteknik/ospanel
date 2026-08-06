@@ -22,6 +22,11 @@ const databases = ref<any[]>([])
 const showCreateDB = ref(false)
 const newDB = ref({ name: '', username: '', password: '', charset: 'utf8mb4' })
 
+// Subdomain
+const subdomains = ref<any[]>([])
+const showCreateSub = ref(false)
+const newSub = ref({ subdomain: '', php_version: '8.3' })
+
 // Email
 const emails = ref<any[]>([])
 const showCreateEmail = ref(false)
@@ -38,7 +43,7 @@ async function loadDomain() {
     const res = await api.get(`/api/v1/domains/${domainId.value}`)
     domain.value = res.data.domain || res.data
     // Load related data
-    await Promise.all([loadDatabases(), loadEmails()])
+    await Promise.all([loadDatabases(), loadEmails(), loadSubdomains()])
   } catch { error.value = 'Domain yüklenemedi'; router.push('/domains') }
   finally { loading.value = false }
 }
@@ -50,6 +55,22 @@ async function loadDatabases() {
       db.name.includes(domain.value!.domain.replace('.', '_'))
     )
   } catch { databases.value = [] }
+}
+
+async function loadSubdomains() {
+  try {
+    const res = await api.get(`/api/v1/domains/${domainId.value}/subdomains`)
+    subdomains.value = res.data.subdomains || []
+  } catch { subdomains.value = [] }
+}
+
+async function createSubdomain() {
+  try {
+    await api.post(`/api/v1/domains/${domainId.value}/subdomains`, newSub.value)
+    showCreateSub.value = false
+    newSub.value = { subdomain: '', php_version: '8.3' }
+    await loadSubdomains()
+  } catch (err: any) { error.value = err.response?.data?.error || 'Subdomain oluşturulamadı' }
 }
 
 async function loadEmails() {
@@ -154,11 +175,11 @@ watch(() => route.params.id, () => { domainId.value = Number(route.params.id); l
 
       <!-- Tabs -->
       <div class="tabs">
-        <button v-for="tab in ['overview','database','email','dns','files','logs']" :key="tab"
+        <button v-for="tab in ['overview','subdomain','database','email','dns','files','logs']" :key="tab"
           :class="'tab ' + (activeTab === tab ? 'active' : '')"
           @click="activeTab = tab"
         >
-          {{ { overview:'📊 Genel', database:'🗄️ Veritabanı', email:'📧 E-Posta', dns:'🔧 DNS', files:'📁 Dosyalar', logs:'📋 Loglar' }[tab] }}
+          {{ { overview:'📊 Genel', subdomain:'🌐 Alt Domain', database:'🗄️ Veritabanı', email:'📧 E-Posta', dns:'🔧 DNS', files:'📁 Dosyalar', logs:'📋 Loglar' }[tab] }}
         </button>
       </div>
 
@@ -208,6 +229,44 @@ watch(() => route.params.id, () => { domainId.value = Number(route.params.id); l
             <div class="info-item"><span>Oluşturma</span><strong>{{ domain.created_at }}</strong></div>
           </div>
         </div>
+      </div>
+
+      <!-- Tab: Subdomain -->
+      <div v-if="activeTab === 'subdomain'" class="tab-content">
+        <div class="section-header">
+          <h3>🌐 Alt Domainler (Subdomain)</h3>
+          <button class="btn-add-sm" @click="showCreateSub = true">+ Alt Domain Ekle</button>
+        </div>
+        <div v-if="subdomains.length === 0" class="empty">
+          Henüz alt domain yok.<br><small>Örn: blog.{{ domain.domain }}, shop.{{ domain.domain }}</small>
+        </div>
+        <div v-else class="data-list">
+          <div v-for="sub in subdomains" :key="sub.id" class="data-row">
+            <div>
+              <strong>{{ sub.domain }}</strong>
+              <span class="muted">{{ sub.document_root }}</span>
+            </div>
+            <div class="row-actions">
+              <span :class="'badge ' + (sub.ssl_enabled ? 'badge-on' : 'badge-off')">
+                {{ sub.ssl_enabled ? '🔒 SSL' : '🔓' }}
+              </span>
+              <span class="muted">PHP {{ sub.php_version }}</span>
+              <a :href="'http://' + sub.domain" target="_blank" class="btn-sm">🌍</a>
+            </div>
+          </div>
+        </div>
+        <div v-if="showCreateSub" class="inline-form">
+          <div style="display:flex;align-items:center;gap:4px;flex:2">
+            <input v-model="newSub.subdomain" placeholder="blog" style="flex:1" />
+            <span style="font-size:14px;color:#888">.{{ domain.domain }}</span>
+          </div>
+          <select v-model="newSub.php_version" style="flex:1">
+            <option v-for="v in ['7.4','8.0','8.1','8.2','8.3','8.4']" :key="v" :value="v">PHP {{ v }}</option>
+          </select>
+          <button class="btn-add-sm" @click="createSubdomain">Oluştur</button>
+          <button class="btn-cancel-sm" @click="showCreateSub = false">İptal</button>
+        </div>
+        <p class="muted" style="margin-top:12px">Alt domain için ayrı document root oluşturulur. CNAME DNS kaydı otomatik eklenir. SSL ayrıca kurulabilir.</p>
       </div>
 
       <!-- Tab: Veritabanı -->

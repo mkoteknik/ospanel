@@ -368,6 +368,82 @@ func generateRandomPass(length int) string {
 	return hex.EncodeToString(b)[:length]
 }
 
+// CreateSubdomain alt domain oluşturur
+func (h *DomainHandler) CreateSubdomain(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.GetUserID(r.Context())
+
+	var req model.CreateSubdomainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
+		return
+	}
+
+	// Parent domain'i bul
+	parent, err := h.store.GetDomain(r.Context(), req.ParentID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Ana domain bulunamadı"})
+		return
+	}
+
+	subDomain := req.Subdomain + "." + parent.Domain
+	docRoot := parent.DocumentRoot + "_sub/" + req.Subdomain
+
+	// Alt domain zaten var mı?
+	existing, _ := h.store.GetDomainByName(r.Context(), subDomain)
+	if existing != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Bu subdomain zaten kayıtlı"})
+		return
+	}
+
+	// Document root oluştur
+	system.CreateDocumentRoot(docRoot, req.Subdomain)
+
+	if req.PHPVersion == "" { req.PHPVersion = parent.PHPVersion }
+
+	domain := &model.Domain{
+		UserID:       userID,
+		ParentID:     &req.ParentID,
+		Domain:       subDomain,
+		DocumentRoot: docRoot,
+		PHPVersion:   req.PHPVersion,
+		ForceHTTPS:   true,
+		Status:       model.DomainActive,
+	}
+
+	if err := h.store.CreateDomain(r.Context(), domain); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Subdomain oluşturulamadı"})
+		return
+	}
+
+	// OLS vhost
+	if h.ols != nil && h.ols.IsAvailable() {
+		h.ols.CreateVHost(subDomain, docRoot, req.PHPVersion)
+	}
+
+	// DNS kaydı ekle
+	if h.pdns != nil && h.pdns.IsAvailable() {
+		h.pdns.CreateRecord(parent.Domain, dns.Record{
+			Name: req.Subdomain + "." + parent.Domain + ".", Type: "CNAME",
+			Content: parent.Domain + ".", TTL: 3600,
+		})
+	}
+
+	h.log.Infow("subdomain oluşturuldu", "subdomain", subDomain, "parent", parent.Domain)
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"domain": domain, "message": "Subdomain oluşturuldu"})
+}
+
+// ListSubdomains domain'in alt domainlerini listeler
+func (h *DomainHandler) ListSubdomains(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	subs, err := h.store.ListSubdomains(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Subdomainler listelenemedi"})
+		return
+	}
+	if subs == nil { subs = []*model.Domain{} }
+	writeJSON(w, http.StatusOK, map[string]interface{}{"subdomains": subs, "total": len(subs)})
+}
+
 // isValidDomain basit domain validasyonu
 func isValidDomain(domain string) bool {
 	if len(domain) < 4 || len(domain) > 253 {

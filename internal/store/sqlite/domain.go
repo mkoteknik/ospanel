@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/mkoteknik/ospanel/internal/model"
@@ -14,10 +15,10 @@ func (db *DB) CreateDomain(ctx context.Context, domain *model.Domain) error {
 	domain.UpdatedAt = time.Now().UTC()
 
 	result, err := db.conn.ExecContext(ctx, `
-		INSERT INTO domains (user_id, domain, document_root, php_version,
+		INSERT INTO domains (user_id, parent_id, domain, document_root, php_version,
 			ssl_enabled, force_https, bandwidth_limit, disk_limit, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		domain.UserID, domain.Domain, domain.DocumentRoot, domain.PHPVersion,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		domain.UserID, domain.ParentID, domain.Domain, domain.DocumentRoot, domain.PHPVersion,
 		domain.SSLenabled, domain.ForceHTTPS, domain.BandwidthLimit,
 		domain.DiskLimit, string(domain.Status), now, now,
 	)
@@ -34,12 +35,16 @@ func (db *DB) CreateDomain(ctx context.Context, domain *model.Domain) error {
 func scanDomainRow(scanner interface{ Scan(...interface{}) error }) (*model.Domain, error) {
 	d := &model.Domain{}
 	var createdAt, updatedAt string
-	err := scanner.Scan(&d.ID, &d.UserID, &d.Domain, &d.DocumentRoot, &d.PHPVersion,
+	var parentID sql.NullInt64
+	err := scanner.Scan(&d.ID, &d.UserID, &parentID, &d.Domain, &d.DocumentRoot, &d.PHPVersion,
 		&d.SSLenabled, &d.ForceHTTPS, &d.BandwidthLimit, &d.DiskLimit,
 		&d.Status, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if parentID.Valid {
+		d.ParentID = &parentID.Int64
 	}
 	d.CreatedAt = scanTime(createdAt)
 	d.UpdatedAt = scanTime(updatedAt)
@@ -49,7 +54,7 @@ func scanDomainRow(scanner interface{ Scan(...interface{}) error }) (*model.Doma
 // GetDomain ID'ye göre domain getirir
 func (db *DB) GetDomain(ctx context.Context, id int64) (*model.Domain, error) {
 	return scanDomainRow(db.conn.QueryRowContext(ctx, `
-		SELECT id, user_id, domain, document_root, php_version,
+		SELECT id, user_id, parent_id, domain, document_root, php_version,
 			ssl_enabled, force_https, bandwidth_limit, disk_limit, status, created_at, updated_at
 		FROM domains WHERE id = ?`, id))
 }
@@ -57,7 +62,7 @@ func (db *DB) GetDomain(ctx context.Context, id int64) (*model.Domain, error) {
 // GetDomainByName domain adına göre getirir
 func (db *DB) GetDomainByName(ctx context.Context, name string) (*model.Domain, error) {
 	return scanDomainRow(db.conn.QueryRowContext(ctx, `
-		SELECT id, user_id, domain, document_root, php_version,
+		SELECT id, user_id, parent_id, domain, document_root, php_version,
 			ssl_enabled, force_https, bandwidth_limit, disk_limit, status, created_at, updated_at
 		FROM domains WHERE domain = ?`, name))
 }
@@ -65,7 +70,7 @@ func (db *DB) GetDomainByName(ctx context.Context, name string) (*model.Domain, 
 // ListDomains kullanıcının domainlerini listeler
 func (db *DB) ListDomains(ctx context.Context, userID int64) ([]*model.Domain, error) {
 	rows, err := db.conn.QueryContext(ctx, `
-		SELECT id, user_id, domain, document_root, php_version,
+		SELECT id, user_id, parent_id, domain, document_root, php_version,
 			ssl_enabled, force_https, bandwidth_limit, disk_limit, status, created_at, updated_at
 		FROM domains WHERE user_id = ? ORDER BY id`, userID)
 	if err != nil {
@@ -77,12 +82,44 @@ func (db *DB) ListDomains(ctx context.Context, userID int64) ([]*model.Domain, e
 	for rows.Next() {
 		d := &model.Domain{}
 		var createdAt, updatedAt string
-		if err := rows.Scan(&d.ID, &d.UserID, &d.Domain, &d.DocumentRoot, &d.PHPVersion,
+		var parentID sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.UserID, &parentID, &d.Domain, &d.DocumentRoot, &d.PHPVersion,
 			&d.SSLenabled, &d.ForceHTTPS, &d.BandwidthLimit, &d.DiskLimit,
 			&d.Status, &createdAt, &updatedAt,
 		); err != nil {
 			return nil, err
 		}
+		if parentID.Valid { d.ParentID = &parentID.Int64 }
+		d.CreatedAt = scanTime(createdAt)
+		d.UpdatedAt = scanTime(updatedAt)
+		domains = append(domains, d)
+	}
+	return domains, rows.Err()
+}
+
+// ListSubdomains domain'in alt domainlerini listeler
+func (db *DB) ListSubdomains(ctx context.Context, parentID int64) ([]*model.Domain, error) {
+	rows, err := db.conn.QueryContext(ctx, `
+		SELECT id, user_id, parent_id, domain, document_root, php_version,
+			ssl_enabled, force_https, bandwidth_limit, disk_limit, status, created_at, updated_at
+		FROM domains WHERE parent_id = ? ORDER BY domain`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []*model.Domain
+	for rows.Next() {
+		d := &model.Domain{}
+		var createdAt, updatedAt string
+		var pid sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.UserID, &pid, &d.Domain, &d.DocumentRoot, &d.PHPVersion,
+			&d.SSLenabled, &d.ForceHTTPS, &d.BandwidthLimit, &d.DiskLimit,
+			&d.Status, &createdAt, &updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if pid.Valid { d.ParentID = &pid.Int64 }
 		d.CreatedAt = scanTime(createdAt)
 		d.UpdatedAt = scanTime(updatedAt)
 		domains = append(domains, d)

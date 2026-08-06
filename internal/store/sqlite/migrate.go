@@ -21,6 +21,7 @@ func (db *DB) Migrate(ctx context.Context) error {
 		{8, createAuditLogsTable},
 		{9, createSettingsTable},
 		{10, insertDefaultSettings},
+		{11, addSubdomainSupport},
 	}
 
 	// Migration versiyon tablosunu oluştur
@@ -204,6 +205,11 @@ CREATE TABLE IF NOT EXISTS settings (
     description TEXT NOT NULL DEFAULT '',
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 )`
+
+const addSubdomainSupport = `
+ALTER TABLE domains ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES domains(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_domains_parent ON domains(parent_id);
+`
 
 const insertDefaultSettings = `
 INSERT OR IGNORE INTO settings (key, value, description) VALUES
