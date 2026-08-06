@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/mkoteknik/ospanel/internal/adapter/ols"
 	"github.com/mkoteknik/ospanel/internal/api/handler"
 	apimw "github.com/mkoteknik/ospanel/internal/api/middleware"
 	"github.com/mkoteknik/ospanel/internal/pkg/logger"
@@ -19,6 +20,7 @@ type RouterConfig struct {
 	Logger    *logger.Logger
 	JWTSecret string
 	WebFS     fs.FS
+	OLS       *ols.Client
 }
 
 // NewRouter ana API router'ı oluşturur
@@ -36,7 +38,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Handler'ları oluştur
 	authH := handler.NewAuthHandler(cfg.Store, cfg.JWTSecret, cfg.Logger)
-	domainH := handler.NewDomainHandler(cfg.Store, cfg.Logger)
+	domainH := handler.NewDomainHandler(cfg.Store, cfg.Logger, cfg.OLS)
 	databaseH := handler.NewDatabaseHandler(cfg.Store, cfg.Logger)
 	fileH := handler.NewFileHandler(cfg.Store, cfg.Logger)
 	monitorH := handler.NewMonitorHandler(cfg.Logger)

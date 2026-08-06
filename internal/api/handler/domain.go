@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/mkoteknik/ospanel/internal/adapter/ols"
 	"github.com/mkoteknik/ospanel/internal/adapter/system"
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
 	"github.com/mkoteknik/ospanel/internal/model"
@@ -17,13 +18,14 @@ import (
 
 // DomainHandler domain yönetimi
 type DomainHandler struct {
-	store store.Store
-	log   *logger.Logger
+	store    store.Store
+	log      *logger.Logger
+	ols      *ols.Client
 }
 
 // NewDomainHandler yeni DomainHandler
-func NewDomainHandler(s store.Store, log *logger.Logger) *DomainHandler {
-	return &DomainHandler{store: s, log: log}
+func NewDomainHandler(s store.Store, log *logger.Logger, olsClient *ols.Client) *DomainHandler {
+	return &DomainHandler{store: s, log: log, ols: olsClient}
 }
 
 // List kullanıcının domainlerini listeler
@@ -106,6 +108,15 @@ func (h *DomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 		h.log.Errorw("domain oluşturulamadı", "error", err, "domain", req.Domain)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Domain oluşturulamadı"})
 		return
+	}
+
+	// OLS'te vhost oluştur
+	if h.ols != nil && h.ols.IsAvailable() {
+		if err := h.ols.CreateVHost(domain.Domain, docRoot, domain.PHPVersion); err != nil {
+			h.log.Warnw("OLS vhost oluşturulamadı", "error", err, "domain", req.Domain)
+		} else {
+			h.log.Infow("OLS vhost oluşturuldu", "domain", req.Domain)
+		}
 	}
 
 	h.log.Infow("domain oluşturuldu", "domain", req.Domain, "user_id", userID, "docroot", docRoot)
@@ -201,6 +212,13 @@ func (h *DomainHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeleteDomain(r.Context(), id); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Domain silinemedi"})
 		return
+	}
+
+	// OLS'ten vhost'u sil
+	if h.ols != nil && h.ols.IsAvailable() {
+		if err := h.ols.DeleteVHost(domain.Domain); err != nil {
+			h.log.Warnw("OLS vhost silinemedi", "error", err, "domain", domain.Domain)
+		}
 	}
 
 	h.log.Infow("domain silindi", "domain", domain.Domain, "domain_id", id)
