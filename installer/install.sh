@@ -997,6 +997,17 @@ main() {
     echo ""
 
     detect_os
+
+    # Hostname ayarla
+    SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "SUNUCU-IP")
+    CURRENT_HOSTNAME=$(hostname 2>/dev/null || echo "localhost")
+    log_info "Sunucu IP: $SERVER_IP"
+    log_info "Hostname: $CURRENT_HOSTNAME"
+    if [[ "$CURRENT_HOSTNAME" == "localhost" ]] || [[ "$CURRENT_HOSTNAME" == ubuntu* ]] || [[ "$CURRENT_HOSTNAME" == debian* ]]; then
+        log_warn "Hostname hala varsayılan. Sunucu adı: server veya panel.domain.com gibi ayarlanmalı."
+        log_warn "Önerilen: hostnamectl set-hostname server.siteniz.com"
+    fi
+
     install_dependencies
     install_ols
     install_mariadb
