@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -88,7 +87,6 @@ func (h *OLSHandler) LoginInfo(w http.ResponseWriter, r *http.Request) {
 	if len(h.password) > 2 {
 		maskedPass = h.password[:2] + strings.Repeat("*", len(h.password)-2)
 	}
-	host := strings.TrimPrefix(strings.TrimPrefix(h.adminURL, "http://"), "https://")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ols_admin_url": h.adminURL,
 		"username":      h.username,

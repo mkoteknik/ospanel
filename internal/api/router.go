@@ -7,7 +7,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/mkoteknik/ospanel/internal/adapter/backup"
 	"github.com/mkoteknik/ospanel/internal/adapter/cache"
 	"github.com/mkoteknik/ospanel/internal/adapter/container"
 	"github.com/mkoteknik/ospanel/internal/adapter/dns"
@@ -64,7 +63,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	sslH := handler.NewSSLHandler(cfg.Store, cfg.Logger)
 
 	// Audit logger
-	auditLogger := apimw.NewAuditLogger(cfg.Store)
+	_ = apimw.NewAuditLogger(cfg.Store)
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)

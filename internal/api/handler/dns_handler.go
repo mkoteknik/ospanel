@@ -9,7 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/mkoteknik/ospanel/internal/adapter/dns"
-	"github.com/mkoteknik/ospanel/internal/api/middleware"
 	"github.com/mkoteknik/ospanel/internal/model"
 	"github.com/mkoteknik/ospanel/internal/pkg/logger"
 	"github.com/mkoteknik/ospanel/internal/store"

@@ -9,7 +9,6 @@ import (
 
 	ssl2 "github.com/mkoteknik/ospanel/internal/adapter/ssl"
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
-	"github.com/mkoteknik/ospanel/internal/model"
 	"github.com/mkoteknik/ospanel/internal/pkg/logger"
 	"github.com/mkoteknik/ospanel/internal/store"
 )

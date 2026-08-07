@@ -40,6 +40,9 @@ OSPANEL_DIR="/opt/ospanel"
 OSPANEL_DATA="/var/lib/ospanel"
 OSPANEL_CONFIG="/etc/ospanel"
 
+# Admin sifresi EN BASTA uretilir (OLS, systemd, panel seed'i icin)
+ADMIN_PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '=+/' | head -c 16)
+
 # =====================================================================
 # SABİT PAKET SİSTEMİ
 # Öncelik: 1) GitHub repodaki packages/ klasörü  2) Direkt URL (fallback)
@@ -103,7 +106,7 @@ detect_os() {
     fi
 
     case "$OS" in
-        ubuntu|debian)
+        ubuntu|debian|linuxmint)
             PKG_MANAGER="apt"
             log_info "Tespit edildi: $OS $OS_VERSION (apt)"
             ;;
@@ -154,9 +157,14 @@ install_ols() {
     local OLS_INSTALLED=0
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        # Jammy repo ekle (geçici, sadece OLS + PHP LSAPI için)
-        log_info "OLS Jammy repo ekleniyor (geçici)..."
-        echo "deb http://rpms.litespeedtech.com/debian/ jammy main" > /etc/apt/sources.list.d/lst_ospanel.list
+        # Ubuntu surumune gore OLS repo sec
+        local LITE_REPO="jammy"
+        case "${OS_VERSION:-}" in
+            24.04|24.10) LITE_REPO="noble" ;;
+            22.04) LITE_REPO="jammy" ;;
+        esac
+        log_info "OLS repo: ${LITE_REPO}"
+        echo "deb http://rpms.litespeedtech.com/debian/ ${LITE_REPO} main" > /etc/apt/sources.list.d/lst_ospanel.list
         curl -fsSL http://rpms.litespeedtech.com/debian/lst_debian_repo.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/lst_ospanel.gpg 2>/dev/null || true
         apt-get update -qq 2>/dev/null || true
 
@@ -193,9 +201,11 @@ install_ols() {
 
     # Port 80 ve 443 listener'larını ekle (varsayılan OLS sadece 8088'de dinler)
     log_info "OLS port 80/443 yapılandırılıyor..."
-    if ! grep -q "listener HTTP" /usr/local/lsws/conf/httpd_config.conf 2>/dev/null; then
-        sed -i 's|listeners                Default|listeners                Default, HTTP, HTTPS|' /usr/local/lsws/conf/httpd_config.conf 2>/dev/null || true
-        cat >> /usr/local/lsws/conf/httpd_config.conf << 'LSWSCONF'
+    local OLS_CONF="/usr/local/lsws/conf/httpd_config.xml"
+    [[ -f "$OLS_CONF" ]] || OLS_CONF="/usr/local/lsws/conf/httpd_config.conf"
+    if ! grep -q "listener HTTP" "$OLS_CONF" 2>/dev/null; then
+        sed -i 's|listeners                Default|listeners                Default, HTTP, HTTPS|' "$OLS_CONF" 2>/dev/null || true
+        cat >> "$OLS_CONF" << 'LSWSCONF'
 
 listener HTTP{
     address                 *:80
@@ -283,12 +293,18 @@ install_email_services() {
 
     # === MariaDB: email veritabanı ve kullanıcı ===
     log_info "Email veritabanı oluşturuluyor..."
-    mysql -e "CREATE DATABASE IF NOT EXISTS ${MAIL_DB};" 2>/dev/null || true
-    mysql -e "CREATE USER IF NOT EXISTS '${MAIL_DB_USER}'@'localhost' IDENTIFIED BY '${MAIL_DB_PASS}';" 2>/dev/null || true
-    mysql -e "GRANT ALL PRIVILEGES ON ${MAIL_DB}.* TO '${MAIL_DB_USER}'@'localhost';" 2>/dev/null || true
-    mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+    # MariaDB'ye baglan (socket auth veya root sifresi)
+    local MYSQL_CMD="mysql"
+    if [[ -f /etc/ospanel/mysql_root_pass ]]; then
+        local MYSQL_ROOT_PASS=$(cat /etc/ospanel/mysql_root_pass)
+        MYSQL_CMD="mysql -uroot -p${MYSQL_ROOT_PASS}"
+    fi
+    $MYSQL_CMD -e "CREATE DATABASE IF NOT EXISTS ${MAIL_DB};" 2>/dev/null || true
+    $MYSQL_CMD -e "CREATE USER IF NOT EXISTS '${MAIL_DB_USER}'@'localhost' IDENTIFIED BY '${MAIL_DB_PASS}';" 2>/dev/null || true
+    $MYSQL_CMD -e "GRANT ALL PRIVILEGES ON ${MAIL_DB}.* TO '${MAIL_DB_USER}'@'localhost';" 2>/dev/null || true
+    $MYSQL_CMD -e "FLUSH PRIVILEGES;" 2>/dev/null || true
 
-    mysql "$MAIL_DB" << SQLEOF
+    $MYSQL_CMD "$MAIL_DB" << SQLEOF
 CREATE TABLE IF NOT EXISTS virtual_domains (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE
@@ -505,11 +521,11 @@ install_dns_server() {
         # PowerDNS + SQLite backend
         apt-get install -y -qq pdns-server pdns-backend-sqlite3 sqlite3 2>/dev/null && PDNS_INSTALLED=1
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        dnf install -y pdns pdns-backend-sqlite sqlite 2>/dev/null && PDNS_INSTALLED=1
+        dnf install -y pdns pdns-backend-sqlite3 sqlite 2>/dev/null && PDNS_INSTALLED=1
         # EPEL'den dene
         if [[ $PDNS_INSTALLED -eq 0 ]]; then
             dnf install -y epel-release 2>/dev/null || true
-            dnf install -y pdns pdns-backend-sqlite 2>/dev/null && PDNS_INSTALLED=1
+            dnf install -y pdns pdns-backend-sqlite3 2>/dev/null && PDNS_INSTALLED=1
         fi
     fi
 
@@ -869,7 +885,7 @@ secure_mariadb() {
         mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
         mysql -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
         mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
-        mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+        $MYSQL_CMD -e "FLUSH PRIVILEGES;" 2>/dev/null || true
     fi
 
     echo "$MYSQL_PASS" > /etc/ospanel/mysql_root_pass
@@ -929,7 +945,7 @@ server:
     enabled: false
 
 auth:
-  jwt_secret: ""
+  jwt_secret: "3c9e17a01c2752ea1ab98b876ff6896dbe4320d986d69ad207265062fd4c5cfe"
   access_token_expiry: 15
   refresh_token_expiry: 10080
   max_login_attempts: 5
@@ -1017,21 +1033,21 @@ configure_firewall() {
 # ---------------------------------------------------------------------------
 # Admin kullanıcı oluştur
 # ---------------------------------------------------------------------------
-ADMIN_PASS=""
 
 create_admin_user() {
-    log_step "Admin kullanıcısı oluşturuluyor..."
+    log_step "Admin kullanıcısı yapılandırılıyor..."
 
-    # Güçlü rastgele şifre üret
-    ADMIN_PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '=+/' | head -c 16)
+    # Config dosyasından admin şifresini güncelle (önceden oluşturuldu)
+    if [[ -f "$OSPANEL_CONFIG/config.yaml" ]]; then
+        sed -i "s|jwt_secret:.*|jwt_secret: \"$(openssl rand -hex 32)\"" "$OSPANEL_CONFIG/config.yaml" 2>/dev/null || true
+    fi
 
-    # Config dosyasındaki default şifreyi güncelle
+    # Paneli yeniden başlat (yeni şifreyle seed oluşsun)
     systemctl stop ospanel 2>/dev/null || true
+    sleep 2
+    systemctl start ospanel 2>/dev/null || true
 
-    # Panel'in seed admin'i bu şifreyle oluşturması için config'i güncelle
-    # (Panel ilk çalıştırmada admin/ADMIN_PASS ile seed oluşturur)
-
-    log_info "Admin bilgileri oluşturuldu"
+    log_info "Admin bilgileri yapılandırıldı"
 }
 
 # ---------------------------------------------------------------------------

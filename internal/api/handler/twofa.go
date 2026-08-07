@@ -1,23 +1,19 @@
 package handler
 
 import (
-	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha1"
 	"encoding/base32"
+	"encoding/binary"
 	"encoding/json"
-	"image/png"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
 	"github.com/mkoteknik/ospanel/internal/pkg/logger"
 	"github.com/mkoteknik/ospanel/internal/store"
-
-	// Basit TOTP implementasyonu (dış bağımlılık yok)
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/binary"
-	"time"
 )
 
 // TOTPHandler 2FA yönetimi
