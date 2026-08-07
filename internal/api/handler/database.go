@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/mkoteknik/ospanel/internal/adapter/database"
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
 	"github.com/mkoteknik/ospanel/internal/model"
 	"github.com/mkoteknik/ospanel/internal/pkg/logger"
@@ -15,13 +16,14 @@ import (
 
 // DatabaseHandler veritabanı yönetimi işlemleri
 type DatabaseHandler struct {
-	store store.Store
-	log   *logger.Logger
+	store  store.Store
+	log    *logger.Logger
+	mysql  *database.MySQLClient
 }
 
 // NewDatabaseHandler yeni DatabaseHandler oluşturur
 func NewDatabaseHandler(s store.Store, log *logger.Logger) *DatabaseHandler {
-	return &DatabaseHandler{store: s, log: log}
+	return &DatabaseHandler{store: s, log: log, mysql: database.NewMySQLClient()}
 }
 
 // List kullanıcının veritabanlarını listeler
@@ -73,17 +75,46 @@ func (h *DatabaseHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Gerçek MySQL/MariaDB veritabanı ve kullanıcı oluştur
+	mysqlCreated := false
+	if h.mysql != nil && h.mysql.IsAvailable() {
+		if err := h.mysql.CreateDatabase(req.Name, req.Username, req.Password); err != nil {
+			h.log.Warnw("MySQL veritabanı oluşturulamadı, panel kaydı yapıldı", "db", req.Name, "error", err)
+		} else {
+			mysqlCreated = true
+			h.log.Infow("MySQL veritabanı oluşturuldu", "db", req.Name, "user", req.Username)
+		}
+	}
+
 	h.log.Infow("veritabanı oluşturuldu", "name", req.Name, "user_id", userID)
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"database": db,
 		"message":  "Veritabanı başarıyla oluşturuldu",
+		"mysql_created": mysqlCreated,
 	})
 }
 
 // Delete veritabanı siler
 func (h *DatabaseHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	// Silmeden önce veritabanı bilgisini al
+	db, err := h.store.GetDatabase(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Veritabanı bulunamadı"})
+		return
+	}
+
+	// Gerçek MySQL veritabanını ve kullanıcısını sil
+	if h.mysql != nil && h.mysql.IsAvailable() {
+		if err := h.mysql.DeleteDatabase(db.Name, db.Username); err != nil {
+			h.log.Warnw("MySQL veritabanı silinemedi", "db", db.Name, "error", err)
+		} else {
+			h.log.Infow("MySQL veritabanı silindi", "db", db.Name)
+		}
+	}
+
 	if err := h.store.DeleteDatabase(r.Context(), id); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Veritabanı silinemedi"})
 		return

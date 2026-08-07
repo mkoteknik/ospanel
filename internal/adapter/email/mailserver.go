@@ -154,6 +154,50 @@ func (m *MailServer) CreateAlias(domain, source, destination string) error {
 	return err
 }
 
+// DeleteAlias email alias siler
+func (m *MailServer) DeleteAlias(source string) error {
+	if !m.IsAvailable() {
+		return nil
+	}
+	_, err := m.db.Exec("DELETE FROM virtual_aliases WHERE source = ?", source)
+	return err
+}
+
+// ListAliases domain'e ait alias'lari listeler
+func (m *MailServer) ListAliases(domain string) ([]map[string]interface{}, error) {
+	if !m.IsAvailable() {
+		return nil, fmt.Errorf("email sunucusu kullanilabilir degil")
+	}
+	rows, err := m.db.Query(`
+		SELECT a.id, a.source, a.destination
+		FROM virtual_aliases a
+		JOIN virtual_domains d ON a.domain_id = d.id
+		WHERE d.name = ?
+		ORDER BY a.source`, domain)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var aliases []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var source, dest string
+		if err := rows.Scan(&id, &source, &dest); err != nil {
+			continue
+		}
+		aliases = append(aliases, map[string]interface{}{
+			"id":          id,
+			"source":      source,
+			"destination": dest,
+		})
+	}
+	if aliases == nil {
+		aliases = []map[string]interface{}{}
+	}
+	return aliases, nil
+}
+
 // GenerateDKIM domain için DKIM anahtarı oluşturur
 func (m *MailServer) GenerateDKIM(domain string) (string, error) {
 	keyDir := "/etc/opendkim/keys/" + domain

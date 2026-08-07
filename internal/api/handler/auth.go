@@ -80,7 +80,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "2FA kodu gerekli", "require_2fa": "true"})
 			return
 		}
-		// TOTP doğrulama (şimdilik atla)
+		if !CheckTotpCode(user.TOTPSecret, req.TOTPCode) {
+			h.log.Warnw("login başarısız - geçersiz 2FA kodu", "username", req.Username)
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Geçersiz 2FA kodu"})
+			return
+		}
 	}
 
 	// Token üret

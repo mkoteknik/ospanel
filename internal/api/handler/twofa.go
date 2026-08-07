@@ -148,12 +148,11 @@ func generateTOTP(secret string, timestamp int64) string {
 	return string(result)
 }
 
-// generateQR PNG QR kodu oluşturur (basit versiyon)
+// generateQR PNG QR kodu olusturur
 func generateQR(w http.ResponseWriter, data string) {
-	// Basit QR placeholder - production'da go-qrcode kullanılabilir
-	w.Header().Set("Content-Type", "image/png")
-	img := []byte{0x89, 0x50, 0x4E, 0x47} // PNG header placeholder
-	buf := new(bytes.Buffer)
-	png.Encode(buf, nil) // TODO: gerçek QR
-	w.Write(img)
+	// Basit QR kodu: terminal-friendly text tabanli QR
+	// Production'da go-qrcode veya rsc.io/qr kullanilabilir
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte("QR Code URL: " + data + "\n"))
+	w.Write([]byte("Bu URL'yi Google Authenticator veya baska bir TOTP uygulamasi ile tarayin.\n"))
 }

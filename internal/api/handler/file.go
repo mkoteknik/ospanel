@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
 	"encoding/json"
@@ -512,8 +513,43 @@ func extractTarGz(src, dest string) error {
 	}
 	defer gr.Close()
 
-	// Basit tar açma (production'da archive/tar kullanılmalı)
-	data, _ := io.ReadAll(gr)
-	_ = data
-	return fmt.Errorf("tar.gz desteği yakında")
+	tr := tar.NewReader(gr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar okuma hatası: %w", err)
+		}
+
+		// Path traversal koruması
+		target := filepath.Join(dest, header.Name)
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(dest)+string(filepath.Separator)) {
+			return fmt.Errorf("güvenlik: geçersiz arşiv yolu: %s", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
+				return fmt.Errorf("dizin oluşturulamadı %s: %w", target, err)
+			}
+		case tar.TypeReg:
+			os.MkdirAll(filepath.Dir(target), 0755)
+			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			if err != nil {
+				return fmt.Errorf("dosya oluşturulamadı %s: %w", target, err)
+			}
+			if _, err := io.CopyN(outFile, tr, header.Size); err != nil {
+				outFile.Close()
+				return fmt.Errorf("dosya yazma hatası %s: %w", target, err)
+			}
+			outFile.Close()
+		case tar.TypeSymlink:
+			os.Symlink(header.Linkname, target)
+		case tar.TypeLink:
+			os.Link(filepath.Join(dest, header.Linkname), target)
+		}
+	}
+	return nil
 }

@@ -197,7 +197,18 @@ func (h *DomainHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	if v, ok := updates["php_version"]; ok {
 		if phpv, ok := v.(string); ok && isValidPHPVersion(phpv) {
-			domain.PHPVersion = phpv
+			if domain.PHPVersion != phpv {
+				oldVersion := domain.PHPVersion
+				domain.PHPVersion = phpv
+				// OLS'te de PHP sürümünü değiştir
+				if h.ols != nil && h.ols.IsAvailable() {
+					if err := h.ols.SetPHPVersion(domain.Domain, phpv); err != nil {
+						h.log.Warnw("OLS PHP sürümü değiştirilemedi", "domain", domain.Domain, "old", oldVersion, "new", phpv, "error", err)
+					} else {
+						h.log.Infow("OLS PHP sürümü değiştirildi", "domain", domain.Domain, "version", phpv)
+					}
+				}
+			}
 		}
 	}
 	if v, ok := updates["force_https"]; ok {
@@ -519,9 +530,122 @@ func (h *DomainHandler) CreateEmailAccount(w http.ResponseWriter, r *http.Reques
 // DeleteEmailAccount email hesabi siler
 func (h *DomainHandler) DeleteEmailAccount(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	// Email ID ile sil (basit yaklasim)
-	h.log.Infow("email silindi", "id", id)
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Email silindi"})
+
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Email adresi gerekli"})
+		return
+	}
+
+	// Mail sunucusundan sil
+	if h.mail != nil && h.mail.IsAvailable() {
+		if err := h.mail.DeleteAccount(email); err != nil {
+			h.log.Errorw("email silinemedi", "email", email, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Email silinemedi: " + err.Error()})
+			return
+		}
+	}
+
+	// SQLite store'dan da sil
+	if err := h.store.DeleteEmail(r.Context(), id); err != nil {
+		h.log.Warnw("email store'dan silinemedi", "id", id, "error", err)
+	}
+
+	h.log.Infow("email silindi", "email", email, "id", id)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Email silindi: " + email})
+}
+
+// UpdateEmail email hesabi gunceller (quota, forward, autoresponder)
+func (h *DomainHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var req struct {
+		Quota            int    `json:"quota"`
+		ForwardTo        string `json:"forward_to"`
+		AutoresponderMsg string `json:"autoresponder_msg"`
+		Password         string `json:"password"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	email, err := h.store.GetEmail(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Email bulunamadi"})
+		return
+	}
+	if req.Quota > 0 {
+		email.Quota = int64(req.Quota)
+	}
+	if req.ForwardTo != "" {
+		email.ForwardTo = req.ForwardTo
+	}
+	if req.AutoresponderMsg != "" {
+		email.AutoresponderMsg = req.AutoresponderMsg
+	}
+	if err := h.store.UpdateEmail(r.Context(), email); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Email guncellenemedi"})
+		return
+	}
+	if req.Password != "" && h.mail != nil && h.mail.IsAvailable() {
+		parts := strings.Split(email.Email, "@")
+		if len(parts) == 2 {
+			h.mail.DeleteAccount(email.Email)
+			h.mail.CreateAccount(parts[1], email.Email, req.Password, int(email.Quota))
+		}
+	}
+	h.log.Infow("email guncellendi", "email", email.Email, "id", id)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"email": email, "message": "Email guncellendi"})
+}
+
+// ListAliases domain email alias/forwarder listesi
+func (h *DomainHandler) ListAliases(w http.ResponseWriter, r *http.Request) {
+	domain := r.URL.Query().Get("domain")
+	if domain == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Domain gerekli"})
+		return
+	}
+	if h.mail != nil && h.mail.IsAvailable() {
+		aliases, err := h.mail.ListAliases(domain)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"aliases": aliases, "total": len(aliases)})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"aliases": []interface{}{}, "total": 0})
+}
+
+// CreateAlias email alias/forwarder olusturur
+func (h *DomainHandler) CreateAlias(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Domain      string `json:"domain"`
+		Source      string `json:"source"`
+		Destination string `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Gecersiz istek"})
+		return
+	}
+	if h.mail != nil && h.mail.IsAvailable() {
+		if err := h.mail.CreateAlias(req.Domain, req.Source, req.Destination); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	h.log.Infow("email alias olusturuldu", "domain", req.Domain, "source", req.Source)
+	writeJSON(w, http.StatusCreated, map[string]string{"message": "Alias olusturuldu: " + req.Source})
+}
+
+// DeleteAlias email alias siler
+func (h *DomainHandler) DeleteAlias(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	email := r.URL.Query().Get("email")
+	if h.mail != nil && h.mail.IsAvailable() && email != "" {
+		if err := h.mail.DeleteAlias(email); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	h.log.Infow("email alias silindi", "id", id, "email", email)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Alias silindi"})
 }
 
 // isValidDomain basit domain validasyonu

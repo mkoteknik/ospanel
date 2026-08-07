@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/mkoteknik/ospanel/internal/adapter/backup"
 	"github.com/mkoteknik/ospanel/internal/adapter/cache"
 	"github.com/mkoteknik/ospanel/internal/adapter/container"
 	"github.com/mkoteknik/ospanel/internal/adapter/dns"
@@ -58,6 +59,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	totpH := handler.NewTOTPHandler(cfg.Store, cfg.Logger)
 	termH := handler.NewTerminalHandler(cfg.Logger)
 	svcH := handler.NewServicesHandler(cfg.Logger)
+	backupH := handler.NewBackupHandler(cfg.Store, cfg.Logger)
+	dnsH := handler.NewDNSHandler(cfg.Store, cfg.Logger, pdnsClient)
+	sslH := handler.NewSSLHandler(cfg.Store, cfg.Logger)
+
+	// Audit logger
+	auditLogger := apimw.NewAuditLogger(cfg.Store)
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -92,6 +99,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/emails", domainH.ListEmails)
 			r.Post("/emails", domainH.CreateEmailAccount)
 			r.Delete("/emails/{id}", domainH.DeleteEmailAccount)
+			r.Get("/emails/aliases", domainH.ListAliases)
+			r.Post("/emails/aliases", domainH.CreateAlias)
+			r.Delete("/emails/aliases/{id}", domainH.DeleteAlias)
+			r.Put("/emails/{id}", domainH.UpdateEmail)
 
 			// Domains
 			r.Get("/domains", domainH.List)
@@ -140,6 +151,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 			// OLS WebAdmin
 			r.Get("/ols/info", olsH.LoginInfo)
+			r.Put("/ols/password", olsH.ChangePassword)
 			r.Get("/ols/proxy", olsH.Proxy)
 			r.Handle("/ols/*", http.StripPrefix("/ols", http.HandlerFunc(olsH.Proxy)))
 
@@ -172,6 +184,29 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			// System Services
 			r.Get("/services", svcH.List)
 			r.Post("/services/action", svcH.Action)
+
+			// Backup
+			r.Get("/backups", backupH.List)
+			r.Post("/backups", backupH.Create)
+			r.Put("/backups/{id}", backupH.Update)
+			r.Delete("/backups/{id}", backupH.Delete)
+			r.Post("/backups/{id}/run", backupH.Run)
+			r.Get("/backups/results", backupH.ListBackups)
+
+			// DNS Records
+			r.Get("/dns", dnsH.List)
+			r.Post("/dns", dnsH.Create)
+			r.Put("/dns/{id}", dnsH.Update)
+			r.Delete("/dns/{id}", dnsH.Delete)
+
+			// SSL Certificates
+			r.Get("/ssl", sslH.List)
+			r.Get("/ssl/count", sslH.Get)
+			r.Get("/ssl/{id}", sslH.Get)
+			r.Post("/ssl/{id}/renew", sslH.Renew)
+			r.Delete("/ssl/{id}", sslH.Delete)
+			r.Post("/ssl/auto-renew", sslH.SetupAutoRenew)
+			r.Post("/ssl/wildcard", sslH.IssueWildcard)
 
 			// Hostname (public - bilgi amaçlı)
 			r.Get("/server/hostname", adminH.GetHostname)

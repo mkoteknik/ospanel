@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -18,7 +19,7 @@ func NewAuditLogger(s store.Store) *AuditLogger {
 	return &AuditLogger{store: s}
 }
 
-// Log bir audit kaydı oluşturur
+// Log bir audit kaydi olusturur (async, goroutine ile)
 func (al *AuditLogger) Log(r *http.Request, action, resource, details string) {
 	go func() {
 		userID, _ := GetUserID(r.Context())
@@ -36,7 +37,7 @@ func (al *AuditLogger) Log(r *http.Request, action, resource, details string) {
 			CreatedAt: time.Now(),
 		}
 
-		// Context'i request'ten bağımsız olarak oluştur
-		_ = al.store.CreateAuditLog(r.Context(), log)
+		// request context'i yerine background context kullan (goroutine icin)
+		_ = al.store.CreateAuditLog(context.Background(), log)
 	}()
 }

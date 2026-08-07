@@ -45,6 +45,9 @@ const menuItems = [
   { path: '/cloudflare', label: '☁️ CloudFlare' },
   { path: '/cache', label: '⚡ Redis Cache' },
   { path: '/containers', label: '🐳 Konteynerler' },
+  { path: '/admin/users', label: '👥 Kullanicilar', admin: true },
+  { path: '/admin/settings', label: '⚙️ Ayarlar', admin: true },
+  { path: '/admin/audit', label: '📋 Denetim', admin: true },
 ]
 </script>
 
@@ -56,15 +59,16 @@ const menuItems = [
         <span v-else class="logo-sm"><img src="/logo.png" alt="OSPanel" class="logo-img-sm" /></span>
       </div>
       <nav class="sidebar-nav">
-        <a
-          v-for="item in menuItems"
-          :key="item.path"
-          :href="item.path"
-          :class="{ active: isActive(item.path) }"
-          @click.prevent="router.push(item.path)"
-        >
-          {{ sidebarOpen ? item.label : item.label.split(' ')[0] }}
-        </a>
+        <template v-for="item in menuItems" :key="item.path">
+          <a
+            v-if="!item.admin || authStore.isAdmin"
+            :href="item.path"
+            :class="{ active: isActive(item.path) }"
+            @click.prevent="router.push(item.path)"
+          >
+            {{ sidebarOpen ? item.label : item.label.split(' ')[0] }}
+          </a>
+        </template>
       </nav>
       <div v-if="sidebarOpen" class="sidebar-footer">
         <img src="/logo.png" alt="OSPanel" class="sidebar-logo" />

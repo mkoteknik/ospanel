@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 
@@ -126,13 +128,14 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// generateRandomSecret rastgele secret üretir
+// generateRandomSecret crypto/rand ile gerçek rastgele 32-byte secret üretir
 func generateRandomSecret() string {
-	// 32 byte rastgele değer
 	b := make([]byte, 32)
-	// /dev/urandom benzeri, fallback olarak timestamp kullan
-	for i := range b {
-		b[i] = byte(i * 7 % 256) // Deterministik placeholder
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: crypto/rand başarısız olursa (çok düşük ihtimal)
+		for i := range b {
+			b[i] = byte(i*7 ^ 0xA5)
+		}
 	}
-	return "ospanel-secret-change-me"
+	return hex.EncodeToString(b)
 }

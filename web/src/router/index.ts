@@ -100,6 +100,21 @@ const router = createRouter({
           name: 'Containers',
           component: () => import('@/views/containers/List.vue'),
         },
+        {
+          path: 'admin/users',
+          name: 'AdminUsers',
+          component: () => import('@/views/admin/Users.vue'),
+        },
+        {
+          path: 'admin/settings',
+          name: 'AdminSettings',
+          component: () => import('@/views/admin/Settings.vue'),
+        },
+        {
+          path: 'admin/audit',
+          name: 'AdminAudit',
+          component: () => import('@/views/admin/AuditLogs.vue'),
+        },
       ],
     },
     {

@@ -56,6 +56,7 @@ type Store interface {
 
 	// DNS
 	CreateDNSRecord(ctx context.Context, record *model.DNSRecord) error
+	GetDNSRecord(ctx context.Context, id int64) (*model.DNSRecord, error)
 	ListDNSRecords(ctx context.Context, domainID int64) ([]*model.DNSRecord, error)
 	UpdateDNSRecord(ctx context.Context, record *model.DNSRecord) error
 	DeleteDNSRecord(ctx context.Context, id int64) error

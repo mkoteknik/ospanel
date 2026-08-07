@@ -32,11 +32,11 @@ async function handleLogin() {
 // Hızlı giriş - geliştirme aşaması için
 async function quickLogin() {
   username.value = 'admin'
-  password.value = '123456'
+  password.value = 'admin123'
   loading.value = true
   error.value = ''
   try {
-    await authStore.login('admin', '123456')
+    await authStore.login('admin', 'admin123')
     router.push('/')
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Giriş başarısız'
