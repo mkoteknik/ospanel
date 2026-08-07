@@ -115,7 +115,7 @@ onMounted(loadDomains)
       <div class="modal">
         <div class="modal-header"><h3>+ Email Hesabı - @{{ selectedDomain }}</h3><button class="modal-close" @click="showCreate=false">✕</button></div>
         <div class="modal-body">
-          <div class="input-suffix"><input v-model="newEmail.local" placeholder="kullanici" @keyup.enter="createEmail" /><span>@{{ selectedDomain }}</span></div>
+          <div class="input-suffix"><input v-model="newEmail.local" placeholder="kullanıcı" @keyup.enter="createEmail" /><span>@{{ selectedDomain }}</span></div>
           <div class="form-group"><label>Şifre</label>
             <div class="pw-row"><input v-model="newEmail.password" type="text" /><button class="btn-sm" @click="generatePassword">🎲 Üret</button></div>
           </div>

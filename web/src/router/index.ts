@@ -91,6 +91,11 @@ const router = createRouter({
           component: () => import('@/views/cron/List.vue'),
         },
         {
+          path: 'ols',
+          name: 'OLS',
+          component: () => import('@/views/ols/List.vue'),
+        },
+        {
           path: 'cloudflare',
           name: 'CloudFlare',
           component: () => import('@/views/cloudflare/List.vue'),

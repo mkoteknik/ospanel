@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -19,25 +18,42 @@ func NewAuditLogger(s store.Store) *AuditLogger {
 	return &AuditLogger{store: s}
 }
 
-// Log bir audit kaydi olusturur (async, goroutine ile)
+// Middleware tum API isteklerini audit log'a kaydeder
+func (al *AuditLogger) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Sadece yazma islemlerini logla (POST, PUT, DELETE)
+		if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" || r.Method == "PATCH" {
+			resource := r.URL.Path
+			action := r.Method
+			details := r.URL.RawQuery
+			if details == "" {
+				details = "{}"
+			}
+			al.Log(r, action, resource, details)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Log bir audit kaydi olusturur
 func (al *AuditLogger) Log(r *http.Request, action, resource, details string) {
-	go func() {
-		userID, _ := GetUserID(r.Context())
-		var uid *int64
-		if userID != 0 {
-			uid = &userID
-		}
+	userID, _ := GetUserID(r.Context())
+	clientIP := getClientIP(r)
 
-		log := &model.AuditLog{
-			UserID:    uid,
-			Action:    action,
-			Resource:  resource,
-			Details:   details,
-			IP:        getClientIP(r),
-			CreatedAt: time.Now(),
-		}
+	var uidPtr *int64
+	if userID != 0 {
+		uidPtr = &userID
+	}
 
-		// request context'i yerine background context kullan (goroutine icin)
-		_ = al.store.CreateAuditLog(context.Background(), log)
-	}()
+	log := &model.AuditLog{
+		UserID:    uidPtr,
+		Action:    action,
+		Resource:  resource,
+		Details:   details,
+		IP:        clientIP,
+		CreatedAt: time.Now(),
+	}
+
+	// Sync yaz
+	_ = al.store.CreateAuditLog(r.Context(), log)
 }

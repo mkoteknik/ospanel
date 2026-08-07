@@ -1,24 +1,26 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { api } from '@/api/client'
 
 interface Setting { key: string; value: string; description: string }
 
 const settings = ref<Setting[]>([])
 const loading = ref(false)
+const editValues = reactive<Record<string, string>>({})
 
 async function loadSettings() {
   loading.value = true
   try {
     const res = await api.get('/api/v1/admin/settings')
     settings.value = res.data.settings || []
+    settings.value.forEach(s => { editValues[s.key] = s.value })
   } catch { }
   finally { loading.value = false }
 }
 
-async function saveSetting(key: string, value: string) {
+async function saveSetting(key: string) {
   try {
-    await api.put('/api/v1/admin/settings', { [key]: value })
+    await api.put('/api/v1/admin/settings', { [key]: editValues[key] })
     alert('Ayar kaydedildi!')
   } catch { }
 }
@@ -30,12 +32,12 @@ onMounted(loadSettings)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>Sistem Ayarlari</h2>
+        <h2>Sistem Ayarları</h2>
         <p>Panel konfigurasyonunu yonetin.</p>
       </div>
     </div>
 
-    <div v-if="loading" class="loading">Yukleniyor...</div>
+    <div v-if="loading" class="loading">Yükleniyor...</div>
 
     <div v-else class="settings-grid">
       <div v-for="s in settings" :key="s.key" class="setting-card">
@@ -44,8 +46,8 @@ onMounted(loadSettings)
           <small>{{ s.key }}</small>
         </div>
         <div class="setting-input-row">
-          <input :value="s.value" :id="'input-' + s.key" class="setting-input" />
-          <button class="btn-sm" @click="saveSetting(s.key, (document.getElementById('input-' + s.key) as HTMLInputElement).value)">Kaydet</button>
+          <input v-model="editValues[s.key]" class="setting-input" />
+          <button class="btn-sm" @click="saveSetting(s.key)">Kaydet</button>
         </div>
       </div>
     </div>

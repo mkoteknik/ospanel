@@ -320,7 +320,7 @@ watch(() => route.params.id, () => { domainId.value = Number(route.params.id); l
           </div>
         </div>
         <div v-if="showCreateEmail" class="inline-form">
-          <input v-model="newEmail.email" :placeholder="'kullanici@' + domain.domain" />
+          <input v-model="newEmail.email" :placeholder="'kullanıcı@' + domain.domain" />
           <input v-model="newEmail.password" placeholder="Şifre" type="text" />
           <button class="btn-add-sm" @click="createEmail">Oluştur</button>
           <button class="btn-cancel-sm" @click="showCreateEmail = false">İptal</button>

@@ -47,7 +47,7 @@ async function deleteJob(id: number) {
 async function runBackup(id: number) {
   try {
     await api.post('/api/v1/backups/' + id + '/run')
-    alert('Yedekleme baslatildi!')
+    alert('Yedekleme başlatildi!')
   } catch { }
 }
 
@@ -63,22 +63,22 @@ onMounted(loadJobs)
     <div class="page-header">
       <div>
         <h2>Yedekleme</h2>
-        <p>Web sitelerinizi ve veritabanlarinizi guvenceye alin.</p>
+        <p>Web sitelerinizi ve veritabanlarınizi guvenceye alin.</p>
       </div>
       <button class="btn-primary" @click="showAdd = true">+ Yedekleme Plani</button>
     </div>
 
-    <div v-if="loading" class="loading">Yukleniyor...</div>
+    <div v-if="loading" class="loading">Yükleniyor...</div>
 
     <div v-else-if="jobs.length === 0" class="empty">
-      <p>Henuz bir yedekleme plani yok.</p>
-      <button class="btn-primary" @click="showAdd = true">Ilk Yedeklemeyi Olustur</button>
+      <p>Henüz bir yedekleme plani yok.</p>
+      <button class="btn-primary" @click="showAdd = true">Ilk Yedeklemeyi Oluştur</button>
     </div>
 
     <div v-else class="job-list">
       <div v-for="job in jobs" :key="job.id" class="job-card">
         <div class="job-info">
-          <span class="job-type">{{ job.type === 'full' ? 'Tam' : job.type === 'database' ? 'Veritabani' : job.type }}</span>
+          <span class="job-type">{{ job.type === 'full' ? 'Tam' : job.type === 'database' ? 'Veritabanı' : job.type }}</span>
           <span class="job-schedule">{{ job.schedule || 'Manuel' }}</span>
           <span :class="'job-status ' + statusClass(job.status)">{{ job.status }}</span>
         </div>
@@ -87,7 +87,7 @@ onMounted(loadJobs)
           <small v-if="job.last_run">Son calisma: {{ job.last_run }}</small>
         </div>
         <div class="job-actions">
-          <button class="btn-sm" @click="runBackup(job.id)">Simdi Calistir</button>
+          <button class="btn-sm" @click="runBackup(job.id)">Simdi Çalıştır</button>
           <button class="btn-sm-danger" @click="deleteJob(job.id)">Sil</button>
         </div>
       </div>
@@ -100,7 +100,7 @@ onMounted(loadJobs)
           <div class="form-group"><label>Tur</label>
             <select v-model="newJob.type" class="sel">
               <option value="full">Tam Yedekleme</option>
-              <option value="database">Sadece Veritabani</option>
+              <option value="database">Sadece Veritabanı</option>
               <option value="incremental">Artimli</option>
             </select>
           </div>
@@ -123,7 +123,7 @@ onMounted(loadJobs)
             <input v-model.number="newJob.retention" type="number" min="1" max="365" />
           </div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">Iptal</button><button class="btn-primary" @click="createJob">Olustur</button></div>
+        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">İptal</button><button class="btn-primary" @click="createJob">Oluştur</button></div>
       </div>
     </div>
   </div>

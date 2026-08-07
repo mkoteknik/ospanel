@@ -63,7 +63,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	sslH := handler.NewSSLHandler(cfg.Store, cfg.Logger)
 
 	// Audit logger
-	_ = apimw.NewAuditLogger(cfg.Store)
+	auditLogger := apimw.NewAuditLogger(cfg.Store)
+	_ = auditLogger
 
 	// Auth middleware
 	authMW := apimw.AuthMiddleware(cfg.JWTSecret)
@@ -81,6 +82,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(authMW)
+			r.Use(auditLogger.Middleware)
 
 			// Auth
 			r.Get("/auth/me", authH.Me)
@@ -150,6 +152,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 			// OLS WebAdmin
 			r.Get("/ols/info", olsH.LoginInfo)
+			r.Get("/ols/status", olsH.Status)
 			r.Put("/ols/password", olsH.ChangePassword)
 			r.Get("/ols/proxy", olsH.Proxy)
 			r.Handle("/ols/*", http.StripPrefix("/ols", http.HandlerFunc(olsH.Proxy)))

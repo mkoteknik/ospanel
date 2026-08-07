@@ -31,15 +31,15 @@ onMounted(loadLogs)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>Denetim Kayitlari</h2>
-        <p>Sistemdeki tum islemlerin kaydi.</p>
+        <h2>Denetim Kayıtları</h2>
+        <p>Sistemdeki tüm işlemlerin kaydı.</p>
       </div>
       <button class="btn-sm" @click="loadLogs">Yenile</button>
     </div>
 
-    <div v-if="loading" class="loading">Yukleniyor...</div>
+    <div v-if="loading" class="loading">Yükleniyor...</div>
 
-    <div v-else-if="logs.length === 0" class="empty">Henuz denetim kaydi yok.</div>
+    <div v-else-if="logs.length === 0" class="empty">Henüz denetim kaydı yok.</div>
 
     <div v-else class="log-list">
       <div v-for="l in logs" :key="l.id" class="log-row">

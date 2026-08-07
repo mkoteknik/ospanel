@@ -81,17 +81,19 @@ func (h *OLSHandler) GetOLSAuthURL(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// LoginInfo OLS login bilgilerini dondurur (sifre maskeli)
+// LoginInfo OLS login bilgilerini dondurur (otomatik giris icin direct_url)
 func (h *OLSHandler) LoginInfo(w http.ResponseWriter, r *http.Request) {
-	maskedPass := ""
+	directURL := ""
 	if len(h.password) > 2 {
-		maskedPass = h.password[:2] + strings.Repeat("*", len(h.password)-2)
+		// http://admin:pass@host:7080 formatinda otomatik giris URL'i
+		host := strings.TrimPrefix(strings.TrimPrefix(h.adminURL, "http://"), "https://")
+		directURL = "http://" + h.username + ":" + h.password + "@" + host
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ols_admin_url": h.adminURL,
 		"username":      h.username,
 		"has_password":  h.password != "",
-		"masked_pass":   maskedPass,
+		"direct_url":    directURL,
 		"proxy_url":     "/api/v1/ols/proxy",
 	})
 }
@@ -127,4 +129,22 @@ func (h *OLSHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	h.password = req.NewPassword
 	writeJSON(w, http.StatusOK, map[string]string{"message": "OLS admin sifresi degistirildi"})
+}
+
+// Status detayli OLS durumu
+func (h *OLSHandler) Status(w http.ResponseWriter, r *http.Request) {
+	// OLS client'a erisim yok, sadece admin URL ve baglanti bilgisi
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"admin_url":  h.adminURL,
+		"username":   h.username,
+		"has_pass":   h.password != "",
+		"available":  h.checkAvailable(),
+	})
+}
+
+func (h *OLSHandler) checkAvailable() bool {
+	// Basit port kontrolu
+	cmd := exec.Command("ss", "-tlnp")
+	out, _ := cmd.CombinedOutput()
+	return strings.Contains(string(out), ":7080")
 }

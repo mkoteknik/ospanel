@@ -25,7 +25,7 @@ async function renewCert(domainId: number) {
 }
 
 async function deleteCert(domainId: number) {
-  if (!confirm('SSL sertifikasi silinecek!')) return
+  if (!confirm('SSL sertifikası silinecek!')) return
   try { await api.delete('/api/v1/ssl/' + domainId); await loadSSL() }
   catch { }
 }
@@ -43,16 +43,16 @@ onMounted(loadSSL)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>SSL Sertifikalari</h2>
-        <p>Domain SSL durumlarini goruntuleyin, yenileyin ve yonetin.</p>
+        <h2>SSL Sertifikaları</h2>
+        <p>Domain SSL durumlarini görüntüleyin, yenileyin ve yonetin.</p>
       </div>
       <button class="btn-sm" @click="loadSSL">Yenile</button>
     </div>
 
-    <div v-if="loading" class="loading">Yukleniyor...</div>
+    <div v-if="loading" class="loading">Yükleniyor...</div>
 
     <div v-else-if="sslDomains.length === 0" class="empty">
-      <p>Henuz SSL kurulu domain yok. Domain detay sayfasindan SSL kurabilirsiniz.</p>
+      <p>Henüz SSL kurulu domain yok. Domain detay sayfasindan SSL kurabilirsiniz.</p>
     </div>
 
     <div v-else class="ssl-grid">

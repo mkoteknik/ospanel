@@ -60,8 +60,8 @@ onMounted(async () => { await loadDomains(); await loadRecords() })
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>DNS Yonetimi</h2>
-        <p>DNS kayitlarinizi goruntuleyin ve duzenleyin.</p>
+        <h2>DNS Yönetimi</h2>
+        <p>DNS kayıtlarınizi görüntüleyin ve düzenleyin.</p>
       </div>
       <button class="btn-primary" @click="showAdd = true" :disabled="!selectedDomainId">+ Kayit Ekle</button>
     </div>
@@ -79,8 +79,8 @@ onMounted(async () => { await loadDomains(); await loadRecords() })
       </div>
     </div>
 
-    <div v-if="loading" class="loading">Yukleniyor...</div>
-    <div v-else-if="records.length === 0" class="empty">DNS kaydi yok. "Kayit Ekle" ile yeni kayit olusturun.</div>
+    <div v-if="loading" class="loading">Yükleniyor...</div>
+    <div v-else-if="records.length === 0" class="empty">DNS kaydı yok. "Kayit Ekle" ile yeni kayit oluşturun.</div>
 
     <div v-else class="dns-table-wrap">
       <div class="dns-table">
@@ -103,7 +103,7 @@ onMounted(async () => { await loadDomains(); await loadRecords() })
 
     <div v-if="showAdd" class="modal-overlay" @click.self="showAdd=false">
       <div class="modal">
-        <div class="modal-header"><h3>+ DNS Kaydi Ekle</h3><button class="modal-close" @click="showAdd=false">X</button></div>
+        <div class="modal-header"><h3>+ DNS Kaydı Ekle</h3><button class="modal-close" @click="showAdd=false">X</button></div>
         <div class="modal-body">
           <div class="form-row">
             <div class="form-group">
@@ -124,7 +124,7 @@ onMounted(async () => { await loadDomains(); await loadRecords() })
             <input v-model.number="newRecord.priority" type="number" min="0" max="100" placeholder="10" />
           </div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">Iptal</button><button class="btn-primary" @click="addRecord">Ekle</button></div>
+        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">İptal</button><button class="btn-primary" @click="addRecord">Ekle</button></div>
       </div>
     </div>
   </div>

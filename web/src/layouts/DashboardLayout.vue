@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -8,15 +8,20 @@ const route = useRoute()
 const authStore = useAuthStore()
 const sidebarOpen = ref(true)
 
-// OLS Admin panelini yeni sekmede aç
+onMounted(() => { authStore.fetchMe() })
+
+// OLS Admin paneline otomatik giris (direct_url ile)
 async function openOLS() {
   try {
     const res = await fetch('/api/v1/ols/info', { headers: { Authorization: 'Bearer ' + authStore.accessToken } })
     const data = await res.json()
     if (data.direct_url) {
-      window.open('http://' + data.direct_url, '_blank')
+      // Otomatik giris: http://admin:password@host:7080
+      window.open(data.direct_url, '_blank')
+    } else if (data.ols_admin_url) {
+      window.open(data.ols_admin_url, '_blank')
     } else {
-      window.open(data.ols_admin_url || 'http://SERVER_IP:7080', '_blank')
+      window.open('http://' + window.location.hostname + ':7080', '_blank')
     }
   } catch {
     window.open('http://' + window.location.hostname + ':7080', '_blank')
@@ -42,10 +47,11 @@ const menuItems = [
   { path: '/logs', label: '📋 Log Viewer' },
   { path: '/monitor', label: '📈 Monitoring' },
   { path: '/security', label: '🛡️ Güvenlik' },
+  { path: '/ols', label: '🖥️ OLS İnce Ayar' },
   { path: '/cloudflare', label: '☁️ CloudFlare' },
   { path: '/cache', label: '⚡ Redis Cache' },
   { path: '/containers', label: '🐳 Konteynerler' },
-  { path: '/admin/users', label: '👥 Kullanicilar', admin: true },
+  { path: '/admin/users', label: '👥 Kullanıcılar', admin: true },
   { path: '/admin/settings', label: '⚙️ Ayarlar', admin: true },
   { path: '/admin/audit', label: '📋 Denetim', admin: true },
 ]
@@ -81,7 +87,7 @@ const menuItems = [
           {{ sidebarOpen ? '◀' : '▶' }}
         </button>
         <div class="topbar-right">
-          <a href="#" class="ols-btn" @click.prevent="openOLS" title="OLS WebAdmin">🖥️ OLS Admin</a>
+          <a href="#" class="ols-btn" @click.prevent="openOLS" title="OpenLiteSpeed WebAdmin - Otomatik Giriş">🖥️ OLS WebAdmin</a>
           <span class="user-info">👤 {{ authStore.user?.username || 'Kullanıcı' }}</span>
           <button class="logout-btn" @click="authStore.logout()">Çıkış</button>
         </div>
@@ -128,6 +134,8 @@ const menuItems = [
 .logo-img-sm { width: 28px; height: 28px; }
 
 .sidebar-nav {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   padding: 8px;

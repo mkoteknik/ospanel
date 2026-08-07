@@ -32,12 +32,12 @@ async function createUser() {
     showAdd.value = false
     newUser.value = { username: '', email: '', password: '', role: 'user' }
     await loadUsers()
-    alert('Kullanici olusturuldu!')
+    alert('Kullanıcı oluşturuldu!')
   } catch { }
 }
 
 async function deleteUser(id: number) {
-  if (!confirm('Bu kullanici silinecek!')) return
+  if (!confirm('Bu kullanıcı silinecek!')) return
   try { await api.delete('/api/v1/admin/users/' + id); await loadUsers() }
   catch { }
 }
@@ -54,19 +54,19 @@ onMounted(loadUsers)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>Kullanici Yonetimi</h2>
-        <p>Sistem kullanicilarini yonetin.</p>
+        <h2>Kullanıcı Yönetimi</h2>
+        <p>Sistem kullanıcılarini yonetin.</p>
       </div>
-      <button class="btn-primary" @click="showAdd = true">+ Kullanici Ekle</button>
+      <button class="btn-primary" @click="showAdd = true">+ Kullanıcı Ekle</button>
     </div>
 
-    <div v-if="loading" class="loading">Yukleniyor...</div>
+    <div v-if="loading" class="loading">Yükleniyor...</div>
 
     <div v-else class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>ID</th><th>Kullanici</th><th>Email</th><th>Rol</th><th>Durum</th><th>Kota (MB)</th><th>Son Giris</th><th></th>
+            <th>ID</th><th>Kullanıcı</th><th>Email</th><th>Rol</th><th>Durum</th><th>Kota (MB)</th><th>Son Giriş</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -97,11 +97,11 @@ onMounted(loadUsers)
 
     <div v-if="showAdd" class="modal-overlay" @click.self="showAdd=false">
       <div class="modal">
-        <div class="modal-header"><h3>+ Yeni Kullanici</h3><button class="modal-close" @click="showAdd=false">X</button></div>
+        <div class="modal-header"><h3>+ Yeni Kullanıcı</h3><button class="modal-close" @click="showAdd=false">X</button></div>
         <div class="modal-body">
-          <div class="form-group"><label>Kullanici Adi</label><input v-model="newUser.username" placeholder="kullaniciadi" /></div>
+          <div class="form-group"><label>Kullanıcı Adi</label><input v-model="newUser.username" placeholder="kullanıcıadi" /></div>
           <div class="form-group"><label>Email</label><input v-model="newUser.email" type="email" placeholder="user@site.com" /></div>
-          <div class="form-group"><label>Sifre</label><input v-model="newUser.password" type="password" placeholder="En az 8 karakter" /></div>
+          <div class="form-group"><label>Şifre</label><input v-model="newUser.password" type="password" placeholder="En az 8 karakter" /></div>
           <div class="form-group"><label>Rol</label>
             <select v-model="newUser.role" class="sel">
               <option value="user">User</option>
@@ -110,7 +110,7 @@ onMounted(loadUsers)
             </select>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">Iptal</button><button class="btn-primary" @click="createUser">Olustur</button></div>
+        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">İptal</button><button class="btn-primary" @click="createUser">Oluştur</button></div>
       </div>
     </div>
   </div>

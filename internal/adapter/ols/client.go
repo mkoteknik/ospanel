@@ -278,6 +278,103 @@ func generateVHostConfig(domain, documentRoot, phpVersion string) string {
 	return buf.String()
 }
 
+// GetDetailedStatus kapsamli OLS durumu
+func (c *Client) GetDetailedStatus() map[string]interface{} {
+	status := c.GetStatus()
+
+	if c.IsAvailable() {
+		// Konfigurasyon testi
+		testCmd := exec.Command(c.binPath, "-t")
+		testOut, testErr := testCmd.CombinedOutput()
+		status["config_ok"] = testErr == nil
+		if testErr != nil {
+			status["config_error"] = string(testOut)
+		}
+
+		// PHP handler'lari bul
+		status["php_handlers"] = c.GetPHPHandlers()
+
+		// Port durumu (netstat/ss)
+		status["port_80"] = c.checkPort(80)
+		status["port_443"] = c.checkPort(443)
+		status["port_7080"] = c.checkPort(7080)
+
+		// Vhost sayisi
+		vhosts, _ := c.ListVHosts()
+		status["vhost_count"] = len(vhosts)
+		status["vhosts"] = vhosts
+
+		// Process bilgisi
+		pidCmd := exec.Command("pgrep", "-f", "lshttpd")
+		pidOut, _ := pidCmd.CombinedOutput()
+		pids := strings.Fields(strings.TrimSpace(string(pidOut)))
+		status["running"] = len(pids) > 0
+		status["process_count"] = len(pids)
+
+		// Son hatalar (son 3 satir)
+		errorLog := "/usr/local/lsws/logs/error.log"
+		if data, err := os.ReadFile(errorLog); err == nil {
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			recent := []string{}
+			start := len(lines) - 5
+			if start < 0 { start = 0 }
+			for i := start; i < len(lines); i++ {
+				if strings.TrimSpace(lines[i]) != "" {
+					recent = append(recent, lines[i])
+				}
+			}
+			status["recent_errors"] = recent
+		}
+	}
+
+	return status
+}
+
+// GetPHPHandlers kurulu PHP LSAPI surumlerini listeler
+func (c *Client) GetPHPHandlers() []map[string]interface{} {
+	var handlers []map[string]interface{}
+	phpBase := "/usr/local/lsws"
+	for _, ver := range []string{"82", "83", "84"} {
+		phpBin := fmt.Sprintf("%s/lsphp%s/bin/lsphp", phpBase, ver)
+		info := map[string]interface{}{
+			"version": fmt.Sprintf("%s.%s", ver[:1], ver[1:]),
+			"bin":     phpBin,
+		}
+		if _, err := os.Stat(phpBin); err == nil {
+			info["installed"] = true
+			cmd := exec.Command(phpBin, "-v")
+			out, _ := cmd.CombinedOutput()
+			info["full_version"] = strings.TrimSpace(strings.Split(string(out), "\n")[0])
+		} else {
+			info["installed"] = false
+		}
+		handlers = append(handlers, info)
+	}
+	return handlers
+}
+
+// ListVHosts tum virtual host'lari listeler
+func (c *Client) ListVHosts() ([]string, error) {
+	var vhosts []string
+	entries, err := os.ReadDir(c.vhostsDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			vhosts = append(vhosts, entry.Name())
+		}
+	}
+	return vhosts, nil
+}
+
+// checkPort bir portun dinlenip dinlenmedigini kontrol eder
+func (c *Client) checkPort(port int) bool {
+	cmd := exec.Command("ss", "-tlnp")
+	out, _ := cmd.CombinedOutput()
+	return strings.Contains(string(out), fmt.Sprintf(":%d", port))
+}
+
 func extractPHPVersion(content string) string {
 	// vhconf.xml'den PHP sürümünü çıkarır
 	for _, ver := range []string{"84", "83", "82", "81", "80", "74"} {
