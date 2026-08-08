@@ -17,11 +17,11 @@ type MySQLClient struct {
 
 // NewMySQLClient yeni MySQL client oluşturur
 func NewMySQLClient() *MySQLClient {
-	// Bağlantı bilgilerini /etc/ospanel/db.conf dosyasından oku
+	// Bağlantı bilgilerini /etc/ospanel/mysql_root_pass veya db.conf dosyasından oku
 	data, err := os.ReadFile("/etc/ospanel/db.conf")
 	if err != nil {
-		// Fallback: root ile dene
-		return newMySQLWithDSN("root:@tcp(127.0.0.1:3306)/?charset=utf8mb4")
+		// Config yoksa baglanmadan bos client don (guvenli default)
+		return &MySQLClient{}
 	}
 
 	config := parseConfig(string(data))

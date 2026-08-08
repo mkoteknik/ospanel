@@ -27,11 +27,15 @@ type User struct {
 	Email          string     `json:"email"`
 	PasswordHash   string     `json:"-"` // JSON'da gözükmez
 	Role           UserRole   `json:"role"`
+	ResellerID     *int64     `json:"reseller_id,omitempty"` // Bagli oldugu reseller
 	TOTPSecret     string     `json:"-"` // JSON'da gözükmez
 	TOTPEnabled    bool       `json:"totp_enabled"`
 	HomeDir        string     `json:"home_dir"`
 	Shell          string     `json:"shell"`
-	QuotaLimit     int64      `json:"quota_limit"` // MB
+	QuotaLimit     int64      `json:"quota_limit"` // MB disk
+	MaxDomains     int        `json:"max_domains"`
+	MaxEmails      int        `json:"max_emails"`
+	MaxDatabases   int        `json:"max_databases"`
 	LoginAttempts  int        `json:"-"`
 	LockedUntil    *time.Time `json:"-"`
 	LastLoginAt    *time.Time `json:"last_login_at"`

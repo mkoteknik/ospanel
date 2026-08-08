@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api/client'
 
@@ -6,6 +7,7 @@ interface Container { id: string; name: string; image: string; status: string; s
 interface Template { id: string; name: string; icon: string; description: string; image: string; ports: string; category: string; env: string }
 
 const containers = ref<Container[]>([])
+const { t } = useI18n()
 const stats = ref<any>({ installed: false, total: 0, running: 0 })
 const templates = ref<Template[]>([])
 const loading = ref(true)
@@ -79,12 +81,12 @@ onMounted(load)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>Konteyner Yönetimi</h2>
+        <h2>{{ t('containers.title') }}</h2>
         <p>Docker/Podman konteynerleri ve one-click uygulama kurulumu.</p>
       </div>
       <div class="header-actions">
         <span v-if="stats.installed" class="runtime-badge">
-          <span class="runtime-dot"></span> Runtime aktif · {{ stats.running }}/{{ stats.total }} çalışıyor
+          <span class="runtime-dot"></span> {{ t('containers.runtimeActiveWithCount', { running: stats.running, total: stats.total }) }}
         </span>
         <button class="btn-refresh" @click="load">🔄 Yenile</button>
       </div>
@@ -93,12 +95,12 @@ onMounted(load)
     <!-- Runtime Kurulu Değil -->
     <div v-if="!loading && !stats.installed" class="install-prompt">
       <div class="prompt-icon">🐳</div>
-      <h3>Konteyner Runtime Kurulu Değil</h3>
-      <p>One-click deploy ve konteyner yönetimi için Podman veya Docker gereklidir.</p>
+      <h3>{{ t('containers.notInstalled') }}</h3>
+      <p>{{ t('containers.notInstalledDesc') }}</p>
       <div class="prompt-actions">
         <button class="btn-install-runtime" :disabled="installLoading" @click="installRuntime">
           <span v-if="installLoading" class="btn-spinner"></span>
-          {{ installLoading ? 'Kuruluyor...' : '📥 Podman Kur (Önerilen)' }}
+          {{ installLoading ? t('common.installing') : t('auto.4be928') }}
         </button>
         <code class="prompt-cmd">sudo apt install podman -y</code>
       </div>
@@ -107,7 +109,7 @@ onMounted(load)
     <!-- One-Click Deploy -->
     <div v-if="stats.installed" class="deploy-section">
       <h3>⚡ One-Click Deploy</h3>
-      <p class="section-desc">Tek tikla hazır uygulamalari konteyner olarak başlat.</p>
+      <p class="section-desc">{{ t('auto.76f13c') }}</p>
       <div v-for="cat in categories" :key="cat" class="deploy-category">
         <div class="cat-label">{{ cat }}</div>
         <div class="template-grid">
@@ -149,8 +151,8 @@ onMounted(load)
           </div>
 
           <div class="cc-meta">
-            <span v-if="c.state === 'running'" class="status-tag running">Çalışıyor</span>
-            <span v-else class="status-tag stopped">Durdu</span>
+            <span v-if="c.state === 'running'" class="status-tag running">{{ t('common.active') }}</span>
+            <span v-else class="status-tag stopped">{{ t('cache.stopped') }}</span>
             <span v-if="c.ports.length" class="cc-ports">{{ c.ports.join(', ') }}</span>
             <span class="cc-created">{{ c.created }}</span>
           </div>
@@ -178,7 +180,7 @@ onMounted(load)
 
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <p>Yükleniyor...</p>
+      <p>{{ t('common.loading') }}</p>
     </div>
 
     <!-- Deploy Modal -->
@@ -190,12 +192,12 @@ onMounted(load)
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>Konteyner Adı</label>
+            <label>{{ t('containers.containerName') }}</label>
             <input v-model="deployName" type="text" />
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>İmaj</label>
+              <label>{{ t('containers.image') }}</label>
               <input :value="selectedTemplate.image" disabled type="text" class="input-disabled" />
             </div>
             <div class="form-group">
@@ -206,7 +208,7 @@ onMounted(load)
           <pre v-if="deployResult" class="deploy-result">{{ deployResult }}</pre>
         </div>
         <div class="modal-footer">
-          <button class="btn-cancel" @click="showDeploy = false">İptal</button>
+          <button class="btn-cancel" @click="showDeploy = false">{{ t('common.cancel') }}</button>
           <button class="btn-deploy" :disabled="deployLoading === selectedTemplate.id" @click="deployApp">
             {{ deployLoading === selectedTemplate.id ? '⏳ Deploy ediliyor...' : '🚀 Deploy Et' }}
           </button>
@@ -224,7 +226,7 @@ onMounted(load)
 .header-actions { display: flex; align-items: center; gap: 12px; }
 .runtime-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #155724; background: #d4edda; padding: 6px 12px; border-radius: 20px; font-weight: 600; }
 .runtime-dot { width: 8px; height: 8px; background: #27ae60; border-radius: 50%; }
-.btn-refresh { padding: 8px 16px; background: white; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 13px; cursor: pointer; color: #555; }
+.btn-refresh { padding: 8px 16px; background: var(--aura-surface); border: 1px solid #e0e0e0; border-radius: 8px; font-size: 13px; cursor: pointer; color: #555; }
 .btn-refresh:hover { background: #f5f5f5; }
 
 /* Loading */
@@ -233,7 +235,7 @@ onMounted(load)
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Install Prompt */
-.install-prompt { text-align: center; padding: 60px 20px; background: white; border-radius: 16px; border: 2px dashed #e0e0e0; }
+.install-prompt { text-align: center; padding: 60px 20px; background: var(--aura-surface); border-radius: 16px; border: 2px dashed #e0e0e0; }
 .prompt-icon { font-size: 56px; margin-bottom: 12px; }
 .install-prompt h3 { margin: 0 0 8px; font-size: 20px; color: #1a1a2e; }
 .install-prompt p { color: #888; margin: 0 0 20px; }
@@ -250,7 +252,7 @@ onMounted(load)
 .deploy-category { margin-bottom: 16px; }
 .cat-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 700; margin-bottom: 8px; letter-spacing: 1px; }
 .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-.template-card { background: white; border-radius: 12px; padding: 16px; border: 1px solid #f0f0f0; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; gap: 4px; }
+.template-card { background: var(--aura-surface); border-radius: 12px; padding: 16px; border: 1px solid var(--aura-border); cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; gap: 4px; }
 .template-card:hover { border-color: #0f3460; box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); }
 .t-icon { font-size: 26px; }
 .t-name { font-size: 14px; font-weight: 700; color: #1a1a2e; }
@@ -262,7 +264,7 @@ onMounted(load)
 .container-section h3 { margin: 0 0 12px; font-size: 18px; }
 .container-grid { display: flex; flex-direction: column; gap: 8px; }
 
-.container-card { display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: white; border-radius: 10px; border: 1px solid #f0f0f0; transition: all 0.2s; }
+.container-card { display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: var(--aura-surface); border-radius: 10px; border: 1px solid var(--aura-border); transition: all 0.2s; }
 .container-card.running { border-left: 3px solid #27ae60; background: #fafffe; }
 .container-card:hover { border-color: #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
 
@@ -291,25 +293,25 @@ onMounted(load)
 .toggle-switch { position: relative; display: inline-block; width: 48px; height: 26px; cursor: pointer; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
 .toggle-slider { position: absolute; inset: 0; background: #ccc; border-radius: 26px; transition: 0.3s; }
-.toggle-slider::before { content: ''; position: absolute; height: 20px; width: 20px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+.toggle-slider::before { content: ''; position: absolute; height: 20px; width: 20px; left: 3px; bottom: 3px; background: var(--aura-surface); border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
 .toggle-switch input:checked + .toggle-slider { background: #27ae60; }
 .toggle-switch input:checked + .toggle-slider::before { transform: translateX(22px); }
 .toggle-switch.loading { opacity: 0.6; pointer-events: none; }
 
-.btn-icon { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid #e0e0e0; border-radius: 8px; background: white; cursor: pointer; font-size: 14px; transition: all 0.15s; }
+.btn-icon { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid #e0e0e0; border-radius: 8px; background: var(--aura-surface); cursor: pointer; font-size: 14px; transition: all 0.15s; }
 .btn-icon:hover:not(:disabled) { background: #f5f5f5; border-color: #ccc; }
 .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal { background: white; border-radius: 14px; width: 90%; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+.modal { background: var(--aura-surface); border-radius: 14px; width: 90%; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #f0f0f0; }
 .modal-header h3 { margin: 0; }
 .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
 .modal-body { padding: 24px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-top: 1px solid #f0f0f0; }
 .form-group { margin-bottom: 16px; flex: 1; }
-.form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #333; }
+.form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--aura-text); }
 .form-group input { width: 100%; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
 .form-group input:focus { outline: none; border-color: #0f3460; }
 .input-disabled { background: #f8f8f8; color: #888; }

@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
+
+const { t } = useI18n()
 
 interface SSLDomain { domain: string; domain_id: number; ssl_enabled: boolean; cert: { days_left: number; issuer: string; expires_at: string } | null }
 
@@ -25,55 +28,65 @@ async function renewCert(domainId: number) {
 }
 
 async function deleteCert(domainId: number) {
-  if (!confirm('SSL sertifikası silinecek!')) return
+  if (!confirm(t('ssl.confirmDelete'))) return
   try { await api.delete('/api/v1/ssl/' + domainId); await loadSSL() }
   catch { }
 }
 
 function daysClass(days: number) {
-  if (days > 60) return 'days-ok'
-  if (days > 30) return 'days-warn'
-  return 'days-critical'
+  if (days > 60) return 'tone-ok'
+  if (days > 30) return 'tone-warn'
+  return 'tone-critical'
 }
 
 onMounted(loadSSL)
 </script>
 
 <template>
-  <div class="page">
-    <div class="page-header">
+  <div class="ssl-page">
+    <div class="page-head">
       <div>
-        <h2>SSL Sertifikaları</h2>
-        <p>Domain SSL durumlarini görüntüleyin, yenileyin ve yonetin.</p>
+        <h2>{{ t('auto.62c50d') }}</h2>
+        <p>{{ t('auto.114051') }}</p>
       </div>
-      <button class="btn-sm" @click="loadSSL">Yenile</button>
+      <button class="aura-btn aura-btn-ghost" @click="loadSSL">{{ t('common.refresh') }}</button>
     </div>
 
-    <div v-if="loading" class="loading">Yükleniyor...</div>
+    <div v-if="loading" class="state muted">{{ t('common.loading') }}</div>
 
-    <div v-else-if="sslDomains.length === 0" class="empty">
-      <p>Henüz SSL kurulu domain yok. Domain detay sayfasindan SSL kurabilirsiniz.</p>
+    <div v-else-if="sslDomains.length === 0" class="aura-card empty">
+      <div class="empty-icon">◈</div>
+      <div class="empty-value">{{ t('auto.928812') }}</div>
+      <p class="empty-desc">{{ t('auto.286c62') }}</p>
     </div>
 
     <div v-else class="ssl-grid">
-      <div v-for="d in sslDomains" :key="d.domain_id" class="ssl-card" :class="{ 'ssl-active': d.ssl_enabled && d.cert }">
+      <div v-for="d in sslDomains" :key="d.domain_id" class="aura-card ssl-card" :class="{ active: d.ssl_enabled && d.cert }">
+        <div class="ssl-top">
+          <span class="kicker">{{ d.ssl_enabled && d.cert ? t('common.active') : t('common.inactive') }}</span>
+          <span v-if="d.ssl_enabled && d.cert" :class="'pill ' + daysClass(d.cert.days_left)">{{ d.cert.days_left }} {{ t('common.days') }}</span>
+          <span v-else class="pill tone-none">SSL Yok</span>
+        </div>
         <div class="ssl-domain">{{ d.domain }}</div>
-        <div class="ssl-status-row">
-          <span v-if="d.ssl_enabled && d.cert" :class="'days-badge ' + daysClass(d.cert.days_left)">
-            {{ d.cert.days_left }} gun
-          </span>
-          <span v-else class="days-badge days-none">SSL Yok</span>
+        <div v-if="d.cert" class="ssl-meta">
+          <div class="meta-row">
+            <span class="kicker">Sertifika</span>
+            <span class="meta-value plain">{{ d.cert.issuer }}</span>
+          </div>
+          <div class="meta-row">
+            <span class="kicker">{{ t('auto.7cd21b') }}</span>
+            <span class="meta-value plain">{{ d.cert.expires_at?.split('T')[0] || '-' }}</span>
+          </div>
         </div>
-        <div v-if="d.cert" class="ssl-info">
-          <small>{{ d.cert.issuer }}</small>
-          <small>Bitis: {{ d.cert.expires_at?.split('T')[0] || '-' }}</small>
+        <div v-else class="ssl-meta muted">
+          <span class="kicker">{{ t('auto.d11b15') }}</span>
         </div>
-        <div class="ssl-actions" v-if="d.cert">
-          <button class="btn-sm" @click="renewCert(d.domain_id)">Yenile</button>
-          <button class="btn-sm-danger" @click="deleteCert(d.domain_id)">Sil</button>
-        </div>
-        <div v-else class="ssl-actions">
-          <router-link :to="'/domains/' + d.domain_id" class="btn-sm">SSL Kur</router-link>
+        <div class="ssl-actions">
+          <template v-if="d.cert">
+            <button class="aura-btn aura-btn-ghost sm" @click="renewCert(d.domain_id)">{{ t('common.refresh') }}</button>
+            <button class="aura-btn aura-btn-ghost sm danger" @click="deleteCert(d.domain_id)">{{ t('common.delete') }}</button>
+          </template>
+          <router-link v-else :to="'/domains/' + d.domain_id" class="aura-btn aura-btn-primary sm">SSL Kur</router-link>
         </div>
       </div>
     </div>
@@ -81,26 +94,34 @@ onMounted(loadSSL)
 </template>
 
 <style scoped>
-.page { width: 100%; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-.page-header h2 { margin: 0; font-size: 22px; }
-.page-header p { color: #888; margin: 4px 0 0; font-size: 14px; }
-.btn-sm { padding: 8px 16px; background: #0f3460; color: white; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block; }
-.btn-sm:hover { background: #1a4a7a; }
-.btn-sm-danger { padding: 8px 16px; background: white; color: #d32f2f; border: 1px solid #d32f2f; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.loading { text-align: center; padding: 60px; color: #888; }
-.empty { text-align: center; padding: 60px; background: white; border-radius: 12px; color: #888; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-.ssl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-.ssl-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); border: 2px solid #f0f0f0; transition: all 0.2s; }
-.ssl-card.ssl-active { border-color: #d4edda; }
-.ssl-domain { font-weight: 700; font-size: 16px; margin-bottom: 8px; color: #1a1a2e; }
-.ssl-status-row { margin-bottom: 8px; }
-.days-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-.days-ok { background: #d4edda; color: #155724; }
-.days-warn { background: #fff3cd; color: #856404; }
-.days-critical { background: #f8d7da; color: #721c24; }
-.days-none { background: #f0f0f0; color: #888; }
-.ssl-info { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.ssl-info small { color: #888; font-size: 12px; }
+.ssl-page { display: flex; flex-direction: column; gap: 16px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.page-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--aura-text); }
+.page-head p { margin-top: 4px; font-size: 13px; color: var(--aura-text-muted); max-width: 560px; }
+.kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--aura-text-faint); }
+.state { text-align: center; padding: 32px; font-size: 13px; }
+.state.muted { color: var(--aura-text-muted); }
+.empty { text-align: center; padding: 32px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.empty-icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); color: var(--aura-text-muted); font-size: 18px; }
+.empty-value { font-size: 15px; font-weight: 650; color: var(--aura-text); }
+.empty-desc { font-size: 13px; color: var(--aura-text-muted); }
+
+.ssl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.ssl-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.ssl-card.active { border-color: color-mix(in srgb, var(--aura-success) 18%, var(--aura-border)); }
+.ssl-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ssl-domain { font-size: 16px; font-weight: 700; letter-spacing: -0.015em; color: var(--aura-text); word-break: break-all; }
+.ssl-meta { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); }
+.ssl-meta.muted { align-items: center; justify-content: center; min-height: 52px; }
+.meta-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.meta-value.plain { font-size: 12px; color: var(--aura-text-muted); }
+.pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid transparent; }
+.pill.tone-ok { background: color-mix(in srgb, var(--aura-success) 12%, var(--aura-surface)); color: var(--aura-success); border-color: color-mix(in srgb, var(--aura-success) 18%, transparent); }
+.pill.tone-warn { background: color-mix(in srgb, var(--aura-warning) 12%, var(--aura-surface)); color: var(--aura-warning); border-color: color-mix(in srgb, var(--aura-warning) 18%, transparent); }
+.pill.tone-critical { background: color-mix(in srgb, var(--aura-danger) 10%, var(--aura-surface)); color: var(--aura-danger); border-color: color-mix(in srgb, var(--aura-danger) 18%, transparent); }
+.pill.tone-none { background: var(--aura-bg-subtle); color: var(--aura-text-faint); border-color: var(--aura-border); }
 .ssl-actions { display: flex; gap: 8px; }
+.ssl-actions .sm { flex: 1; padding: 8px 10px; font-size: 13px; text-align: center; justify-content: center; }
+.sm.danger { color: var(--aura-danger); }
+.sm.danger:hover { background: color-mix(in srgb, var(--aura-danger) 8%, var(--aura-surface)); border-color: color-mix(in srgb, var(--aura-danger) 18%, var(--aura-border)); }
 </style>

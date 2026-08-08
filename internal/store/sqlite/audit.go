@@ -46,11 +46,17 @@ func (db *DB) ListAuditLogs(ctx context.Context, limit, offset int) ([]*model.Au
 // GetSetting ayar değerini getirir
 func (db *DB) GetSetting(ctx context.Context, key string) (*model.Setting, error) {
 	s := &model.Setting{}
+	var updatedAtStr string
 	err := db.conn.QueryRowContext(ctx, `
 		SELECT key, value, description, updated_at FROM settings WHERE key=?`, key,
-	).Scan(&s.Key, &s.Value, &s.Description, &s.UpdatedAt)
+	).Scan(&s.Key, &s.Value, &s.Description, &updatedAtStr)
 	if err != nil {
 		return nil, err
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+		s.UpdatedAt = t
+	} else if t, err := time.Parse("2006-01-02 15:04:05", updatedAtStr); err == nil {
+		s.UpdatedAt = t
 	}
 	return s, nil
 }
@@ -79,8 +85,16 @@ func (db *DB) ListSettings(ctx context.Context) ([]*model.Setting, error) {
 	var settings []*model.Setting
 	for rows.Next() {
 		s := &model.Setting{}
-		if err := rows.Scan(&s.Key, &s.Value, &s.Description, &s.UpdatedAt); err != nil {
+		var updatedAtStr string
+		if err := rows.Scan(&s.Key, &s.Value, &s.Description, &updatedAtStr); err != nil {
 			return nil, err
+		}
+		if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+			s.UpdatedAt = t
+		} else if t, err := time.Parse("2006-01-02 15:04:05", updatedAtStr); err == nil {
+			s.UpdatedAt = t
+		} else if t, err := time.Parse("2006-01-02T15:04:05Z", updatedAtStr); err == nil {
+			s.UpdatedAt = t
 		}
 		settings = append(settings, s)
 	}

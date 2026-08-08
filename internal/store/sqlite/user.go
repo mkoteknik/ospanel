@@ -14,48 +14,43 @@ func scanTime(s string) time.Time {
 	return t
 }
 
-// CreateUser yeni kullanıcı oluşturur
-func (db *DB) CreateUser(ctx context.Context, user *model.User) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	user.CreatedAt = time.Now().UTC()
-	user.UpdatedAt = time.Now().UTC()
+// userSelectCols ortak SELECT kolonlari (tekrar eden kod azaltmak icin)
+const userSelectCols = `id, username, email, password_hash, role, reseller_id,
+	totp_secret, totp_enabled, home_dir, shell, quota_limit,
+	max_domains, max_emails, max_databases,
+	login_attempts, locked_until, last_login_at, last_login_ip,
+	status, created_at, updated_at`
 
-	result, err := db.conn.ExecContext(ctx, `
-		INSERT INTO users (username, email, password_hash, role, totp_secret, totp_enabled,
-			home_dir, shell, quota_limit, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		user.Username, user.Email, user.PasswordHash, string(user.Role),
-		user.TOTPSecret, user.TOTPEnabled, user.HomeDir, user.Shell,
-		user.QuotaLimit, string(user.Status), now, now,
-	)
-	if err != nil {
-		return err
-	}
+// userInsertCols ortak INSERT kolonlari
+const userInsertCols = `username, email, password_hash, role, reseller_id,
+	totp_secret, totp_enabled, home_dir, shell, quota_limit,
+	max_domains, max_emails, max_databases, status, created_at, updated_at`
 
-	id, _ := result.LastInsertId()
-	user.ID = id
-	return nil
-}
-
-// scanUserRow bir kullanıcı satırını tarar
+// scanUserRow bir kullanıcı satırını tarar (reseller destegi ile)
 func scanUserRow(scanner interface {
 	Scan(dest ...interface{}) error
 }) (*model.User, error) {
 	user := &model.User{}
+	var resellerID sql.NullInt64
 	var lockedUntil sql.NullString
 	var lastLogin sql.NullString
 	var createdAt, updatedAt string
 
 	err := scanner.Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash,
-		&user.Role, &user.TOTPSecret, &user.TOTPEnabled,
-		&user.HomeDir, &user.Shell, &user.QuotaLimit, &user.LoginAttempts,
-		&lockedUntil, &lastLogin, &user.LastLoginIP, &user.Status,
-		&createdAt, &updatedAt,
+		&user.Role, &resellerID,
+		&user.TOTPSecret, &user.TOTPEnabled,
+		&user.HomeDir, &user.Shell, &user.QuotaLimit,
+		&user.MaxDomains, &user.MaxEmails, &user.MaxDatabases,
+		&user.LoginAttempts, &lockedUntil, &lastLogin, &user.LastLoginIP,
+		&user.Status, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	if resellerID.Valid {
+		user.ResellerID = &resellerID.Int64
+	}
 	if lockedUntil.Valid {
 		t := scanTime(lockedUntil.String)
 		user.LockedUntil = &t
@@ -70,58 +65,115 @@ func scanUserRow(scanner interface {
 	return user, nil
 }
 
+// CreateUser yeni kullanıcı oluşturur (reseller destegi ile)
+func (db *DB) CreateUser(ctx context.Context, user *model.User) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	user.CreatedAt = time.Now().UTC()
+	user.UpdatedAt = time.Now().UTC()
+
+	result, err := db.conn.ExecContext(ctx, `
+		INSERT INTO users (`+userInsertCols+`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		user.Username, user.Email, user.PasswordHash, string(user.Role),
+		user.ResellerID, user.TOTPSecret, user.TOTPEnabled,
+		user.HomeDir, user.Shell, user.QuotaLimit,
+		user.MaxDomains, user.MaxEmails, user.MaxDatabases,
+		string(user.Status), now, now,
+	)
+	if err != nil {
+		return err
+	}
+
+	id, _ := result.LastInsertId()
+	user.ID = id
+	return nil
+}
+
 // GetUser ID'ye göre kullanıcı getirir
 func (db *DB) GetUser(ctx context.Context, id int64) (*model.User, error) {
 	return scanUserRow(db.conn.QueryRowContext(ctx, `
-		SELECT id, username, email, password_hash, role, totp_secret, totp_enabled,
-			home_dir, shell, quota_limit, login_attempts, locked_until,
-			last_login_at, last_login_ip, status, created_at, updated_at
-		FROM users WHERE id = ?`, id))
+		SELECT `+userSelectCols+` FROM users WHERE id = ?`, id))
 }
 
 // GetUserByUsername kullanıcı adına göre kullanıcı getirir
 func (db *DB) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
 	return scanUserRow(db.conn.QueryRowContext(ctx, `
-		SELECT id, username, email, password_hash, role, totp_secret, totp_enabled,
-			home_dir, shell, quota_limit, login_attempts, locked_until,
-			last_login_at, last_login_ip, status, created_at, updated_at
-		FROM users WHERE username = ?`, username))
+		SELECT `+userSelectCols+` FROM users WHERE username = ?`, username))
 }
 
 // GetUserByEmail email'e göre kullanıcı getirir
 func (db *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
 	return scanUserRow(db.conn.QueryRowContext(ctx, `
-		SELECT id, username, email, password_hash, role, totp_secret, totp_enabled,
-			home_dir, shell, quota_limit, login_attempts, locked_until,
-			last_login_at, last_login_ip, status, created_at, updated_at
-		FROM users WHERE email = ?`, email))
+		SELECT `+userSelectCols+` FROM users WHERE email = ?`, email))
 }
 
 // ListUsers tüm kullanıcıları listeler
 func (db *DB) ListUsers(ctx context.Context) ([]*model.User, error) {
 	rows, err := db.conn.QueryContext(ctx, `
-		SELECT id, username, email, password_hash, role, totp_secret, totp_enabled,
-			home_dir, shell, quota_limit, login_attempts, locked_until,
-			last_login_at, last_login_ip, status, created_at, updated_at
-		FROM users ORDER BY id`)
+		SELECT `+userSelectCols+` FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanUserRows(rows)
+}
 
+// ListUsersByReseller reseller'a bagli kullanicilari listeler
+func (db *DB) ListUsersByReseller(ctx context.Context, resellerID int64) ([]*model.User, error) {
+	rows, err := db.conn.QueryContext(ctx, `
+		SELECT `+userSelectCols+` FROM users WHERE reseller_id = ? ORDER BY id`, resellerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanUserRows(rows)
+}
+
+// CountUsersByReseller reseller'a bagli kullanici sayisini dondurur
+func (db *DB) CountUsersByReseller(ctx context.Context, resellerID int64) (int, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM users WHERE reseller_id = ? AND status != 'inactive'", resellerID).Scan(&count)
+	return count, err
+}
+
+// CountDomainsByUser kullaniciya ait domain sayisini dondurur
+func (db *DB) CountDomainsByUser(ctx context.Context, userID int64) (int, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM domains WHERE user_id = ? AND status != 'inactive'", userID).Scan(&count)
+	return count, err
+}
+
+// CountDatabasesByUser kullaniciya ait veritabani sayisini dondurur
+func (db *DB) CountDatabasesByUser(ctx context.Context, userID int64) (int, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM databases WHERE user_id = ? AND status != 'inactive'", userID).Scan(&count)
+	return count, err
+}
+
+// scanUserRows rows'dan kullanici listesini tarar
+func scanUserRows(rows *sql.Rows) ([]*model.User, error) {
 	var users []*model.User
 	for rows.Next() {
 		user := &model.User{}
+		var resellerID sql.NullInt64
 		var lockedUntil sql.NullString
 		var lastLogin sql.NullString
 		var createdAt, updatedAt string
 		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash,
-			&user.Role, &user.TOTPSecret, &user.TOTPEnabled,
-			&user.HomeDir, &user.Shell, &user.QuotaLimit, &user.LoginAttempts,
-			&lockedUntil, &lastLogin, &user.LastLoginIP, &user.Status,
-			&createdAt, &updatedAt,
+			&user.Role, &resellerID,
+			&user.TOTPSecret, &user.TOTPEnabled,
+			&user.HomeDir, &user.Shell, &user.QuotaLimit,
+			&user.MaxDomains, &user.MaxEmails, &user.MaxDatabases,
+			&user.LoginAttempts, &lockedUntil, &lastLogin, &user.LastLoginIP,
+			&user.Status, &createdAt, &updatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if resellerID.Valid {
+			user.ResellerID = &resellerID.Int64
 		}
 		if lockedUntil.Valid {
 			t := scanTime(lockedUntil.String)
@@ -138,7 +190,7 @@ func (db *DB) ListUsers(ctx context.Context) ([]*model.User, error) {
 	return users, rows.Err()
 }
 
-// UpdateUser kullanıcı günceller
+// UpdateUser kullanıcı günceller (reseller destegi ile)
 func (db *DB) UpdateUser(ctx context.Context, user *model.User) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	user.UpdatedAt = time.Now().UTC()
@@ -154,12 +206,16 @@ func (db *DB) UpdateUser(ctx context.Context, user *model.User) error {
 	}
 
 	_, err := db.conn.ExecContext(ctx, `
-		UPDATE users SET email=?, role=?, totp_secret=?, totp_enabled=?,
-			home_dir=?, shell=?, quota_limit=?, login_attempts=?,
+		UPDATE users SET email=?, role=?, reseller_id=?, totp_secret=?, totp_enabled=?,
+			home_dir=?, shell=?, quota_limit=?, max_domains=?, max_emails=?,
+			max_databases=?, login_attempts=?,
 			locked_until=?, last_login_at=?, last_login_ip=?, status=?, updated_at=?
 		WHERE id=?`,
-		user.Email, string(user.Role), user.TOTPSecret, user.TOTPEnabled,
-		user.HomeDir, user.Shell, user.QuotaLimit, user.LoginAttempts,
+		user.Email, string(user.Role), user.ResellerID,
+		user.TOTPSecret, user.TOTPEnabled,
+		user.HomeDir, user.Shell, user.QuotaLimit,
+		user.MaxDomains, user.MaxEmails, user.MaxDatabases,
+		user.LoginAttempts,
 		lockedUntil, lastLogin, user.LastLoginIP, string(user.Status), now,
 		user.ID,
 	)

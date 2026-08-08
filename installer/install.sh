@@ -49,7 +49,7 @@ ADMIN_PASS=$(openssl rand -base64 16 2>/dev/null | tr -d '=+/' | head -c 16)
 # Repo'dan kurulum YOK, tüm kritik paketler sabit sürüm
 # =====================================================================
 PKG_BASE="https://github.com/mkoteknik/ospanel/releases/latest/download"
-OLS_DEB_FALLBACK="http://rpms.litespeedtech.com/debian/pool/main/jammy/openlitespeed_1.9.1-2+jammy_amd64.deb"
+OLS_DEB_FALLBACK="https://rpms.litespeedtech.com/debian/pool/main/jammy/openlitespeed_1.9.1-2+jammy_amd64.deb"
 OLS_RPM_FALLBACK="https://rpms.litespeedtech.com/centos/8/x86_64/openlitespeed-1.8.2-1.el8.x86_64.rpm"
 
 # Ortak indirme fonksiyonu: önce repodan, sonra fallback
@@ -164,8 +164,8 @@ install_ols() {
             22.04) LITE_REPO="jammy" ;;
         esac
         log_info "OLS repo: ${LITE_REPO}"
-        echo "deb http://rpms.litespeedtech.com/debian/ ${LITE_REPO} main" > /etc/apt/sources.list.d/lst_ospanel.list
-        curl -fsSL http://rpms.litespeedtech.com/debian/lst_debian_repo.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/lst_ospanel.gpg 2>/dev/null || true
+        echo "deb https://rpms.litespeedtech.com/debian/ ${LITE_REPO} main" > /etc/apt/sources.list.d/lst_ospanel.list
+        curl -fsSL https://rpms.litespeedtech.com/debian/lst_debian_repo.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/lst_ospanel.gpg 2>/dev/null || true
         apt-get update -qq 2>/dev/null || true
 
         # OLS + PHP LSAPI birlikte kur (bağımlılıklar için)
@@ -175,7 +175,7 @@ install_ols() {
         rm -f /etc/apt/sources.list.d/lst_ospanel.list
         apt-get update -qq 2>/dev/null || true
     elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        rpm -Uvh http://rpms.litespeedtech.com/centos/litespeed-repo-1.4-1.el8.noarch.rpm 2>/dev/null || true
+        rpm -Uvh https://rpms.litespeedtech.com/centos/litespeed-repo-1.4-1.el8.noarch.rpm 2>/dev/null || true
         dnf install -y openlitespeed lsphp82 lsphp83 lsphp84 2>/dev/null && OLS_INSTALLED=1
     fi
 
@@ -854,15 +854,15 @@ filter = lshttpd
 logpath = /usr/local/lsws/logs/error.log
 maxretry = 5
 bantime = 3600
-
-[ospanel]
-enabled = true
-port = 8090
-filter = ospanel
-logpath = /var/log/ospanel.log
-maxretry = 5
-bantime = 1800
 F2BEOF
+
+    # OLS fail2ban filter olustur
+    cat > /etc/fail2ban/filter.d/lshttpd.conf << 'F2BFILTER'
+[Definition]
+failregex = ^.*\[NOTICE\].*\[.*:.*\].*Connection from <HOST> .* denied.*$
+            ^.*\[INFO\].*\[.*:.*\].*Brute force attack detected from <HOST>.*$
+ignoreregex =
+F2BFILTER
 
     systemctl enable fail2ban 2>/dev/null || true
     systemctl restart fail2ban 2>/dev/null || true
@@ -936,8 +936,10 @@ install_ospanel() {
     fi
 
     # Konfigürasyon oluştur
+		# Rastgele JWT secret uret (her kurulumda benzersiz)
+		JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "change-me-please-change-me-32bytes")
     if [[ ! -f "$OSPANEL_CONFIG/config.yaml" ]]; then
-        cat > "$OSPANEL_CONFIG/config.yaml" << 'YAMLEOF'
+        cat > "$OSPANEL_CONFIG/config.yaml" << YAMLEOF
 server:
   host: "0.0.0.0"
   port: 8090
@@ -945,7 +947,7 @@ server:
     enabled: false
 
 auth:
-  jwt_secret: "3c9e17a01c2752ea1ab98b876ff6896dbe4320d986d69ad207265062fd4c5cfe"
+  jwt_secret: "${JWT_SECRET}"
   access_token_expiry: 15
   refresh_token_expiry: 10080
   max_login_attempts: 5
@@ -977,6 +979,15 @@ YAMLEOF
 install_service() {
     log_step "systemd servisi kuruluyor..."
 
+    # Ozel ospanel kullanicisi olustur (root yerine)
+    if ! id ospanel &>/dev/null; then
+        useradd -r -s /sbin/nologin -d /var/lib/ospanel -m ospanel 2>/dev/null || true
+        # /home erisimi icin gruba ekle
+        usermod -aG ospanel ospanel 2>/dev/null || true
+    fi
+    # /home dizinlerine erisim izni
+    chown -R ospanel:ospanel ${OSPANEL_DATA} ${OSPANEL_CONFIG} 2>/dev/null || true
+
     cat > /etc/systemd/system/ospanel.service << SYSTEMDEOF
 [Unit]
 Description=OpenSpeed Panel
@@ -985,18 +996,19 @@ After=network.target lsws.service
 
 [Service]
 Type=simple
-User=root
+User=ospanel
+Group=ospanel
 Environment="OSPANEL_ADMIN_PASS=${ADMIN_PASS}"
 ExecStart=${OSPANEL_DIR}/ospanel --config ${OSPANEL_CONFIG}/config.yaml
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
 
-# Güvenlik
+# Guvenlik - panel /home dizinlerine erisim gerektirir
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=${OSPANEL_DATA} ${OSPANEL_CONFIG} /usr/local/lsws/conf /tmp
+ProtectHome=no
+ReadWritePaths=${OSPANEL_DATA} ${OSPANEL_CONFIG} /usr/local/lsws/conf /tmp /home /etc/cron.d /etc/letsencrypt /var/backups /etc/opendkim
 
 [Install]
 WantedBy=multi-user.target
@@ -1006,7 +1018,7 @@ SYSTEMDEOF
     systemctl enable ospanel
     systemctl start ospanel 2>/dev/null || log_warn "Servis başlatılamadı (ilk kurulumda normal)"
 
-    log_info "systemd servisi kuruldu"
+    log_info "systemd servisi kuruldu (ospanel kullanicisi ile)"
 }
 
 # ---------------------------------------------------------------------------

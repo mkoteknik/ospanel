@@ -23,57 +23,109 @@ const (
 func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Authorization header'ı al
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
+			tokenString := extractToken(r)
+			if tokenString == "" {
 				http.Error(w, `{"error":"Yetkilendirme gerekli"}`, http.StatusUnauthorized)
 				return
 			}
 
-			// Bearer token formatı
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-				http.Error(w, `{"error":"Geçersiz yetkilendirme formatı"}`, http.StatusUnauthorized)
-				return
-			}
-
-			tokenString := parts[1]
-
-			// Token'ı doğrula
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, jwt.ErrSignatureInvalid
-				}
-				return []byte(jwtSecret), nil
-			})
-
-			if err != nil || !token.Valid {
+			claims, err := parseAndValidateToken(tokenString, jwtSecret, "access")
+			if err != nil {
 				http.Error(w, `{"error":"Geçersiz veya süresi dolmuş token"}`, http.StatusUnauthorized)
 				return
 			}
 
-			// Claims'leri al
-			claims, ok := token.Claims.(jwt.MapClaims)
-			if !ok {
-				http.Error(w, `{"error":"Geçersiz token claims"}`, http.StatusUnauthorized)
-				return
-			}
-
-			// Context'e kullanıcı bilgilerini ekle
-			ctx := r.Context()
-			if userID, ok := claims["user_id"]; ok {
-				ctx = context.WithValue(ctx, UserIDKey, int64(userID.(float64)))
-			}
-			if role, ok := claims["role"]; ok {
-				ctx = context.WithValue(ctx, UserRoleKey, role.(string))
-			}
-			if username, ok := claims["username"]; ok {
-				ctx = context.WithValue(ctx, UsernameKey, username.(string))
-			}
-
+			ctx := injectClaims(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// AuthWS WebSocket için token'ı query (?token=) veya header'dan alır
+func AuthWS(jwtSecret string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenString := extractToken(r)
+		if tokenString == "" {
+			tokenString = r.URL.Query().Get("token")
+		}
+		if tokenString == "" {
+			if c, err := r.Cookie("access_token"); err == nil {
+				tokenString = c.Value
+			}
+		}
+		if tokenString == "" {
+			http.Error(w, `{"error":"Yetkilendirme gerekli"}`, http.StatusUnauthorized)
+			return
+		}
+		claims, err := parseAndValidateToken(tokenString, jwtSecret, "access")
+		if err != nil {
+			http.Error(w, `{"error":"Geçersiz veya süresi dolmuş token"}`, http.StatusUnauthorized)
+			return
+		}
+		ctx := injectClaims(r.Context(), claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+func extractToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+		return ""
+	}
+	return parts[1]
+}
+
+func parseAndValidateToken(tokenString, jwtSecret, expectedType string) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(jwtSecret), nil
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer("ospanel"), jwt.WithAudience("ospanel"))
+	if err != nil || !token.Valid {
+		if err != nil {
+			return nil, err
+		}
+		return nil, jwt.ErrTokenExpired
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+	if expectedType != "" {
+		if typ, ok := claims["type"].(string); !ok || typ != expectedType {
+			return nil, jwt.ErrTokenInvalidClaims
+		}
+	}
+	return claims, nil
+}
+
+func injectClaims(ctx context.Context, claims jwt.MapClaims) context.Context {
+	if userID, ok := claims["user_id"]; ok {
+		switch v := userID.(type) {
+		case float64:
+			ctx = context.WithValue(ctx, UserIDKey, int64(v))
+		case int64:
+			ctx = context.WithValue(ctx, UserIDKey, v)
+		case int:
+			ctx = context.WithValue(ctx, UserIDKey, int64(v))
+		}
+	}
+	if role, ok := claims["role"]; ok {
+		if s, ok := role.(string); ok {
+			ctx = context.WithValue(ctx, UserRoleKey, s)
+		}
+	}
+	if username, ok := claims["username"]; ok {
+		if s, ok := username.(string); ok {
+			ctx = context.WithValue(ctx, UsernameKey, s)
+		}
+	}
+	return ctx
 }
 
 // GetUserID context'ten kullanıcı ID'sini alır

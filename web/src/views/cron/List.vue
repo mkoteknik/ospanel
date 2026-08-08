@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
 
 interface CronJob { minute: string; hour: string; day: string; month: string; weekday: string; command: string; user?: string }
 const jobs = ref<CronJob[]>([])
+const { t } = useI18n()
 const loading = ref(true)
 const showAdd = ref(false)
 const newJob = ref({ minute: '*', hour: '*', day: '*', month: '*', weekday: '*', command: '' })
@@ -11,7 +13,7 @@ const newJob = ref({ minute: '*', hour: '*', day: '*', month: '*', weekday: '*',
 const presets = [
   { label: 'Her dakika', expr: '* * * * *' },
   { label: 'Her saat', expr: '0 * * * *' },
-  { label: 'Her gün 03:00', expr: '0 3 * * *' },
+  { label: t('cron.scheduleDaily3'), expr: '0 3 * * *' },
   { label: 'Her Pazartesi 06:00', expr: '0 6 * * 1' },
   { label: 'Ayda bir (1.) 00:00', expr: '0 0 1 * *' },
 ]
@@ -54,13 +56,13 @@ onMounted(load)
 <template>
   <div class="page">
     <div class="page-header">
-      <div><h2>⏰ Cron Jobs</h2><p>Zamanlanmış görevleri yönetin.</p></div>
+      <div><h2>⏰ Cron Jobs</h2><p>{{ t('cron.desc') }}</p></div>
       <button class="btn-primary" @click="showAdd = true">+ Cron Ekle</button>
     </div>
 
-    <div v-if="loading" class="loading">Yükleniyor...</div>
+    <div v-if="loading" class="loading">{{ t('common.loading') }}</div>
 
-    <div v-else-if="jobs.length === 0" class="empty">Henüz cron job yok. "Cron Ekle" ile yeni görev tanımlayın.</div>
+    <div v-else-if="jobs.length === 0" class="empty">{{ t('cron.empty') }}</div>
 
     <div v-else class="cron-list">
       <div v-for="(j, i) in jobs" :key="i" class="cron-row">
@@ -82,14 +84,14 @@ onMounted(load)
           <div class="cron-inputs">
             <div class="ci"><label>Dk</label><input v-model="newJob.minute" /></div>
             <div class="ci"><label>Saat</label><input v-model="newJob.hour" /></div>
-            <div class="ci"><label>Gün</label><input v-model="newJob.day" /></div>
+            <div class="ci"><label>{{ t('common.day') }}</label><input v-model="newJob.day" /></div>
             <div class="ci"><label>Ay</label><input v-model="newJob.month" /></div>
             <div class="ci"><label>Hafta</label><input v-model="newJob.weekday" /></div>
           </div>
-          <div class="form-group"><label>Komut</label><input v-model="newJob.command" placeholder="ör: /usr/bin/php /home/user/script.php" /></div>
+          <div class="form-group"><label>{{ t('cron.command') }}</label><input v-model="newJob.command" :placeholder="t('cron.commandPlaceholder')" /></div>
           <div class="preview">📋 <code>{{ formatCron(newJob) }} {{ newJob.command || 'komut...' }}</code></div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">İptal</button><button class="btn-primary" @click="addJob">Ekle</button></div>
+        <div class="modal-footer"><button class="btn-cancel" @click="showAdd=false">{{ t('common.cancel') }}</button><button class="btn-primary" @click="addJob">Ekle</button></div>
       </div>
     </div>
   </div>
@@ -104,17 +106,17 @@ onMounted(load)
 .btn-primary:hover { background: #1a4a7a; }
 
 .loading { text-align: center; padding: 60px; color: #888; }
-.empty { text-align: center; padding: 40px; background: white; border-radius: 12px; color: #888; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+.empty { text-align: center; padding: 40px; background: var(--aura-surface); border-radius: 12px; color: #888; box-shadow: var(--aura-shadow); }
 
 .cron-list { display: flex; flex-direction: column; gap: 6px; }
-.cron-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: white; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+.cron-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--aura-surface); border-radius: 8px; box-shadow: var(--aura-shadow); }
 .cron-expr { font-family: 'Consolas',monospace; font-size: 13px; background: #f0f0f0; padding: 4px 10px; border-radius: 4px; white-space: nowrap; }
-.cron-cmd { flex: 1; font-size: 13px; color: #333; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cron-cmd { flex: 1; font-size: 13px; color: var(--aura-text); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cron-user { font-size: 12px; color: #888; background: #f0f4ff; padding: 2px 8px; border-radius: 4px; }
 .btn-del-sm { background: none; border: none; font-size: 16px; cursor: pointer; }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal { background: white; border-radius: 12px; width: 90%; max-width: 550px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+.modal { background: var(--aura-surface); border-radius: 12px; width: 90%; max-width: 550px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #f0f0f0; }
 .modal-header h3 { margin: 0; }
 .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }

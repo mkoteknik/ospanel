@@ -22,7 +22,7 @@ OpenSpeed Panel, **OpenLiteSpeed** web sunucusu ile %100 uyumlu, cPanel/Plesk al
 | | cPanel / Plesk | OpenSpeed Panel |
 |---|---|---|
 | **Lisans** | $15-45/ay | **Tamamen Ücretsiz** 🎉 |
-| **Web Sunucu** | Apache/Nginx | **OpenLiteSpeed** (HTTP/3, QUIC) |
+| **Web Sunucu** | Apache/Nginx (2 ayrı servis) | **OpenLiteSpeed** (tek servis, HTTP/3, QUIC, .htaccess) |
 | **Kaynak** | 1GB+ RAM | **256MB RAM** ile çalışır |
 | **Teknoloji** | Perl/PHP (legacy) | **Go + Vue 3** (modern) |
 | **Kurulum** | Karmaşık, uzun | **Tek komut**, 30 saniye |

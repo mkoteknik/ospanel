@@ -82,7 +82,7 @@ func (h *TOTPHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "2FA başarıyla aktifleştirildi"})
 }
 
-// Disable 2FA devre dışı bırakır
+// Disable 2FA devre dışı bırakır - şifre veya TOTP kodu ile re-auth ZORUNLU
 func (h *TOTPHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.GetUserID(r.Context())
 	user, err := h.store.GetUser(r.Context(), userID)
@@ -91,9 +91,43 @@ func (h *TOTPHandler) Disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !user.TOTPEnabled {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "2FA zaten aktif değil"})
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+		TotpCode string `json:"totp_code"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Şifre VEYA TOTP kodu ile re-auth zorunlu
+	authenticated := false
+
+	// Şifre ile doğrulama
+	if req.Password != "" {
+		if verifyPassword(req.Password, user.PasswordHash) {
+			authenticated = true
+		}
+	}
+
+	// TOTP kodu ile doğrulama
+	if !authenticated && req.TotpCode != "" {
+		if validateTOTP(req.TotpCode, user.TOTPSecret) {
+			authenticated = true
+		}
+	}
+
+	if !authenticated {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "2FA devre dışı bırakmak için şifre veya TOTP kodu gerekli"})
+		return
+	}
+
 	user.TOTPEnabled = false
 	user.TOTPSecret = ""
 	h.store.UpdateUser(r.Context(), user)
+	h.log.Infow("2FA devre disi birakildi", "user", user.Username)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "2FA devre dışı bırakıldı"})
 }
 

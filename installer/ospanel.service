@@ -5,17 +5,18 @@ After=network.target lsws.service
 
 [Service]
 Type=simple
-User=root
+User=ospanel
+Group=ospanel
 ExecStart=/opt/ospanel/ospanel --config /etc/ospanel/config.yaml
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
 
-# Güvenlik
+# Guvenlik - panel /home dizinlerine erisim gerektirir
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/var/lib/ospanel /etc/ospanel /usr/local/lsws/conf /tmp
+ProtectHome=no
+ReadWritePaths=/var/lib/ospanel /etc/ospanel /usr/local/lsws/conf /tmp /home /etc/cron.d /etc/letsencrypt /var/backups /etc/opendkim
 
 [Install]
 WantedBy=multi-user.target

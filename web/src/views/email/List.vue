@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, onMounted, watch } from 'vue'
 import { api } from '@/api/client'
+
+const { t } = useI18n()
 
 interface Domain { id: number; domain: string }
 interface EmailAcc { id: number; email: string; quota: number; status: string; created_at: string }
@@ -43,7 +46,7 @@ async function createEmail() {
 }
 
 async function deleteEmail(id: number) {
-  if (!confirm('Email hesabı silinecek!')) return
+  if (!confirm(t('email.confirmDelete'))) return
   actionLoading.value = 'del' + id
   try { await api.delete('/api/v1/emails/' + id); loadEmails() } catch { }
   finally { actionLoading.value = '' }
@@ -64,133 +67,179 @@ onMounted(loadDomains)
 </script>
 
 <template>
-  <div class="page">
-    <div class="page-header">
-      <div><h2>📧 E-Posta Yönetimi</h2><p>Domainlerinize email hesapları oluşturun. Postfix + Dovecot altyapısı.</p></div>
-      <button class="btn-primary" @click="showCreate = true" :disabled="!selectedDomain">+ Email Ekle</button>
-    </div>
-
-    <!-- Domain Selector -->
-    <div class="selector-bar">
-      <div class="sel-group"><label>Domain</label>
-        <select v-model="selectedDomain"><option v-for="d in domains" :key="d.id" :value="d.domain">{{ d.domain }}</option></select>
+  <div class="email-page">
+    <div class="page-head">
+      <div>
+        <h2>{{ t('auto.efac85') }}</h2>
+        <p>{{ t('auto.50fe98') }}</p>
       </div>
-      <div class="sel-stats"><span>{{ emails.length }} hesap</span><button class="btn-sm" @click="loadEmails">🔄</button></div>
+      <button class="aura-btn aura-btn-primary" :disabled="!selectedDomain" @click="showCreate = true">+ Email Ekle</button>
     </div>
 
-    <div v-if="loading" class="loading">Yükleniyor...</div>
-
-    <div v-else-if="emails.length === 0" class="empty">
-      <div class="empty-icon">📧</div>
-      <h3>Henüz email hesabı yok</h3>
-      <p>{{ selectedDomain }} için ilk email hesabını oluşturun.</p>
-      <button class="btn-primary" @click="showCreate = true">+ Email Oluştur</button>
-    </div>
-
-    <div v-else class="email-table-wrap">
-      <div class="email-table">
-        <div class="et-header"><span>Email</span><span>Kota</span><span>Durum</span><span>Oluşturma</span><span></span></div>
-        <div v-for="e in emails" :key="e.id" class="et-row">
-          <span class="et-email">📧 {{ e.email }}</span>
-          <span>{{ (e.quota / 1024).toFixed(1) }} GB</span>
-          <span><span class="badge badge-on">🟢 Aktif</span></span>
-          <span class="et-date">{{ new Date(e.created_at).toLocaleDateString('tr-TR') }}</span>
-          <span class="et-actions">
-            <button class="btn-icon" @click="openWebmail(e.email)" title="Webmail">🌐</button>
-            <button class="btn-icon" @click="deleteEmail(e.id)" :disabled="actionLoading === 'del'+e.id" title="Sil">🗑️</button>
-          </span>
-        </div>
+    <!-- Domain selector -->
+    <div class="aura-card selector">
+      <div class="sel-group">
+        <span class="kicker">Domain</span>
+        <select v-model="selectedDomain" class="aura-select">
+          <option v-for="d in domains" :key="d.id" :value="d.domain">{{ d.domain }}</option>
+        </select>
+      </div>
+      <div class="sel-stats">
+        <span class="sel-count">{{ emails.length }} hesap</span>
+        <button class="aura-btn aura-btn-ghost sel-refresh" @click="loadEmails" :title="t('common.refresh')">↻</button>
       </div>
     </div>
 
-    <!-- IMAP/POP3 Bilgi -->
-    <div class="info-cards">
-      <div class="info-card"><strong>📨 IMAP</strong><code>mail.{{ selectedDomain || 'site.com' }}</code><span>Port: 993 (SSL)</span></div>
-      <div class="info-card"><strong>📬 POP3</strong><code>mail.{{ selectedDomain || 'site.com' }}</code><span>Port: 995 (SSL)</span></div>
-      <div class="info-card"><strong>📤 SMTP</strong><code>mail.{{ selectedDomain || 'site.com' }}</code><span>Port: 587 (TLS)</span></div>
+    <div v-if="loading" class="state muted">{{ t('common.loading') }}</div>
+
+    <div v-else-if="emails.length === 0" class="aura-card empty">
+      <div class="empty-icon">✉</div>
+      <div class="empty-value">{{ t('auto.1634c1') }}</div>
+      <p class="empty-desc">{{ t('email.emptyDesc2', { domain: selectedDomain }) }}</p>
+      <button class="aura-btn aura-btn-primary" @click="showCreate = true">{{ t('auto.68381a') }}</button>
     </div>
 
-    <!-- Create Modal -->
-    <div v-if="showCreate" class="modal-overlay" @click.self="showCreate=false">
-      <div class="modal">
-        <div class="modal-header"><h3>+ Email Hesabı - @{{ selectedDomain }}</h3><button class="modal-close" @click="showCreate=false">✕</button></div>
-        <div class="modal-body">
-          <div class="input-suffix"><input v-model="newEmail.local" placeholder="kullanıcı" @keyup.enter="createEmail" /><span>@{{ selectedDomain }}</span></div>
-          <div class="form-group"><label>Şifre</label>
-            <div class="pw-row"><input v-model="newEmail.password" type="text" /><button class="btn-sm" @click="generatePassword">🎲 Üret</button></div>
+    <div v-else class="aura-card table-wrap">
+      <div class="et-header">
+        <span class="kicker">{{ t('common.email') }}</span>
+        <span class="kicker">Kota</span>
+        <span class="kicker">{{ t('common.status') }}</span>
+        <span class="kicker">{{ t('auto.69ff4b') }}</span>
+        <span></span>
+      </div>
+      <div v-for="e in emails" :key="e.id" class="et-row">
+        <span class="et-email">{{ e.email }}</span>
+        <span class="et-quota">{{ (e.quota / 1024).toFixed(1) }} GB</span>
+        <span><span class="badge">{{ t('common.active') }}</span></span>
+        <span class="et-date">{{ new Date(e.created_at).toLocaleDateString('tr-TR') }}</span>
+        <span class="et-actions">
+          <button class="icon-btn" title="Webmail" @click="openWebmail(e.email)">↗</button>
+          <button class="icon-btn danger" :title="t('common.delete')" :disabled="actionLoading === 'del'+e.id" @click="deleteEmail(e.id)">×</button>
+        </span>
+      </div>
+    </div>
+
+    <!-- IMAP / POP3 / SMTP -->
+    <div class="info-grid">
+      <div class="aura-card info-card">
+        <span class="kicker">IMAP</span>
+        <code class="info-value">mail.{{ selectedDomain || 'site.com' }}</code>
+        <span class="info-meta">Port 993 · SSL</span>
+      </div>
+      <div class="aura-card info-card">
+        <span class="kicker">POP3</span>
+        <code class="info-value">mail.{{ selectedDomain || 'site.com' }}</code>
+        <span class="info-meta">Port 995 · SSL</span>
+      </div>
+      <div class="aura-card info-card">
+        <span class="kicker">SMTP</span>
+        <code class="info-value">mail.{{ selectedDomain || 'site.com' }}</code>
+        <span class="info-meta">Port 587 · TLS</span>
+      </div>
+    </div>
+
+    <!-- Create modal -->
+    <div v-if="showCreate" class="overlay" @click.self="showCreate = false">
+      <div class="aura-card modal">
+        <div class="modal-head">
+          <div>
+            <span class="kicker">Yeni hesap</span>
+            <h3 class="modal-title">@{{ selectedDomain }}</h3>
           </div>
-          <div class="form-group"><label>Kota (MB)</label><input v-model.number="newEmail.quota" type="number" min="100" max="102400" /></div>
+          <button class="icon-btn" @click="showCreate = false">×</button>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showCreate=false">İptal</button><button class="btn-primary" :disabled="actionLoading==='create'" @click="createEmail">✅ Oluştur</button></div>
+        <div class="modal-body">
+          <div class="field">
+            <label class="kicker">Email adresi</label>
+            <div class="input-suffix">
+              <input v-model="newEmail.local" :placeholder="t('auto.d370f6')" @keyup.enter="createEmail" />
+              <span>@{{ selectedDomain }}</span>
+            </div>
+          </div>
+          <div class="field">
+            <label class="kicker">{{ t('common.password') }}</label>
+            <div class="pw-row">
+              <input v-model="newEmail.password" type="text" placeholder="••••••••" />
+              <button class="aura-btn aura-btn-ghost" @click="generatePassword">{{ t('auto.59c356') }}</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="kicker">{{ t('common.quota') }}</label>
+            <input v-model.number="newEmail.quota" type="number" min="100" max="102400" />
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="aura-btn aura-btn-ghost" @click="showCreate = false">{{ t('common.cancel') }}</button>
+          <button class="aura-btn aura-btn-primary" :disabled="actionLoading === 'create'" @click="createEmail">{{ t('common.create') }}</button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page { width: 100%; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-.page-header h2 { margin: 0; font-size: 22px; }
-.page-header p { color: #888; margin: 4px 0 0; font-size: 14px; }
-.btn-primary { padding: 10px 20px; background: #0f3460; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
-.btn-primary:hover { background: #1a4a7a; }
-.btn-primary:disabled { background: #999; cursor: not-allowed; }
-.btn-sm { padding: 8px 14px; background: white; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.btn-sm:hover { background: #f5f5f5; }
+.email-page { display: flex; flex-direction: column; gap: 16px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.page-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--aura-text); }
+.page-head p { margin-top: 4px; font-size: 13px; color: var(--aura-text-muted); max-width: 560px; line-height: 1.5; }
 
-.selector-bar { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; gap: 16px; background: white; padding: 16px 20px; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-.sel-group { flex: 1; max-width: 400px; }
-.sel-group label { display: block; font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; margin-bottom: 6px; }
-.sel-group select { width: 100%; padding: 10px 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; background: white; }
-.sel-group select:focus { outline: none; border-color: #0f3460; }
-.sel-stats { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #888; }
+.kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--aura-text-faint); }
 
-.loading { text-align: center; padding: 60px; color: #888; }
-.empty { text-align: center; padding: 60px 20px; background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-.empty-icon { font-size: 48px; margin-bottom: 16px; }
-.empty h3 { margin: 0 0 8px; }
-.empty p { color: #888; margin: 0 0 20px; }
+.selector { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; padding: 14px 16px; }
+.sel-group { flex: 1; max-width: 380px; display: flex; flex-direction: column; gap: 8px; }
+.aura-select { width: 100%; padding: 10px 12px; border: 1px solid var(--aura-border); border-radius: 10px; font-size: 14px; background: var(--aura-surface); color: var(--aura-text); }
+.aura-select:focus { outline: none; border-color: var(--aura-accent); box-shadow: 0 0 0 3px var(--aura-accent-ring); }
+.sel-stats { display: flex; align-items: center; gap: 10px; }
+.sel-count { font-size: 13px; color: var(--aura-text-muted); }
+.sel-refresh { padding: 8px 12px; }
 
-.email-table-wrap { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); overflow: hidden; margin-bottom: 20px; }
-.email-table { width: 100%; }
-.et-header, .et-row { display: grid; grid-template-columns: 1fr 100px 80px 110px 60px; gap: 12px; padding: 12px 20px; font-size: 13px; align-items: center; }
-.et-header { font-weight: 700; font-size: 11px; color: #888; text-transform: uppercase; background: #fafafa; border-bottom: 2px solid #e5e5e5; }
-.et-row { border-bottom: 1px solid #f5f5f5; }
-.et-row:hover { background: #f8f9fa; }
-.et-email { font-weight: 500; color: #1a1a2e; }
-.et-date { font-size: 12px; color: #888; }
-.et-actions { display: flex; gap: 4px; }
-.btn-icon { background: none; border: 1px solid #e0e0e0; border-radius: 4px; padding: 6px 8px; cursor: pointer; font-size: 14px; }
-.btn-icon:hover:not(:disabled) { background: #f0f0f0; }
+.state { text-align: center; padding: 40px; font-size: 13px; }
+.state.muted { color: var(--aura-text-muted); }
 
-.badge { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-.badge-on { background: #d4edda; color: #155724; }
+.empty { text-align: center; padding: 32px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.empty-icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); color: var(--aura-text-muted); font-size: 18px; }
+.empty-value { font-size: 15px; font-weight: 650; color: var(--aura-text); }
+.empty-desc { font-size: 13px; color: var(--aura-text-muted); margin-bottom: 8px; }
 
-.info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-.info-card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-.info-card strong { display: block; font-size: 14px; margin-bottom: 4px; }
-.info-card code { display: block; font-size: 13px; color: #0f3460; font-family: monospace; margin-bottom: 4px; }
-.info-card span { font-size: 12px; color: #888; }
+.table-wrap { overflow: hidden; padding: 0; }
+.et-header, .et-row { display: grid; grid-template-columns: 1fr 110px 90px 120px 80px; gap: 12px; padding: 12px 16px; align-items: center; }
+.et-header { background: var(--aura-bg-subtle); border-bottom: 1px solid var(--aura-border); }
+.et-row { border-bottom: 1px solid var(--aura-border); font-size: 13px; }
+.et-row:last-child { border-bottom: none; }
+.et-row:hover { background: var(--aura-surface-hover); }
+.et-email { font-weight: 550; color: var(--aura-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.et-quota { color: var(--aura-text-muted); font-variant-numeric: tabular-nums; }
+.et-date { font-size: 12px; color: var(--aura-text-muted); }
+.et-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal { background: white; border-radius: 12px; width: 90%; max-width: 460px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #f0f0f0; }
-.modal-header h3 { margin: 0; }
-.modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
-.modal-body { padding: 24px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-top: 1px solid #f0f0f0; }
-.btn-cancel { padding: 10px 20px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 650; background: var(--aura-accent-soft); color: var(--aura-success); border: 1px solid transparent; }
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: var(--aura-success); }
 
-.form-group { margin-bottom: 16px; }
-.form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-.form-group input { width: 100%; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
-.form-group input:focus { outline: none; border-color: #0f3460; }
+.icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--aura-border); background: var(--aura-surface); color: var(--aura-text-muted); cursor: pointer; font-size: 14px; }
+.icon-btn:hover { background: var(--aura-surface-hover); color: var(--aura-text); border-color: var(--aura-border-strong); }
+.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.icon-btn.danger:hover { color: var(--aura-danger); border-color: color-mix(in srgb, var(--aura-danger) 20%, var(--aura-border)); }
 
-.input-suffix { display: flex; align-items: center; margin-bottom: 16px; }
-.input-suffix input { flex: 1; padding: 10px 12px; border: 2px solid #e0e0e0; border-right: none; border-radius: 8px 0 0 8px; font-size: 14px; }
-.input-suffix input:focus { outline: none; border-color: #0f3460; }
-.input-suffix span { padding: 10px 14px; background: #f0f0f0; border: 2px solid #e0e0e0; border-left: none; border-radius: 0 8px 8px 0; font-size: 14px; color: #888; }
+.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 860px) { .info-grid { grid-template-columns: 1fr; } .et-header, .et-row { grid-template-columns: 1fr 80px 90px; } .et-header span:nth-child(4), .et-row span:nth-child(4) { display: none; } }
+.info-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.info-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--aura-text); }
+.info-meta { font-size: 12px; color: var(--aura-text-faint); }
 
+.overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.modal { width: 100%; max-width: 460px; overflow: hidden; }
+.modal-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 20px; border-bottom: 1px solid var(--aura-border); }
+.modal-title { font-size: 15px; font-weight: 700; color: var(--aura-text); margin-top: 2px; }
+.modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--aura-border); }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field input { width: 100%; padding: 10px 12px; border: 1px solid var(--aura-border); border-radius: 10px; font-size: 14px; background: var(--aura-surface); color: var(--aura-text); }
+.field input:focus { outline: none; border-color: var(--aura-accent); box-shadow: 0 0 0 3px var(--aura-accent-ring); }
+.field input:placeholder { color: var(--aura-text-faint); }
+.input-suffix { display: flex; align-items: stretch; }
+.input-suffix input { flex: 1; border-radius: 10px 0 0 10px; }
+.input-suffix span { display: inline-flex; align-items: center; padding: 0 12px; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); border-left: none; border-radius: 0 10px 10px 0; font-size: 13px; color: var(--aura-text-muted); }
 .pw-row { display: flex; gap: 8px; }
 .pw-row input { flex: 1; }
 </style>

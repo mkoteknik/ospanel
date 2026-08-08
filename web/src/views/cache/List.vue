@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, onMounted } from 'vue'
 import { api } from '@/api/client'
+
+const { t } = useI18n()
 
 const stats = ref<any>({ installed: false })
 const info = ref<any>({})
@@ -65,7 +68,7 @@ async function doAction(action: string) {
 }
 
 async function flushCache() {
-  if (!confirm('Tüm Redis cache temizlenecek. Emin misiniz?')) return
+  if (!confirm(t('cache.confirmClear'))) return
   actionLoading.value = 'flush'
   try {
     await api.post('/api/v1/cache/flush')
@@ -81,33 +84,33 @@ onMounted(loadStatus)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>Redis Cache</h2>
-        <p>Yuksek performansli bellek ici cache yönetimi.</p>
+        <h2>{{ t('cache.title') }}</h2>
+        <p>{{ t('cache.subtitle') }}</p>
       </div>
       <div class="header-actions">
-        <button v-if="stats.installed" class="btn-secondary" @click="loadInfo">📋 Detay</button>
+        <button v-if="stats.installed" class="btn-secondary" @click="loadInfo">📋 {{ t('cache.detail') }}</button>
         <button v-if="stats.installed" class="btn-danger" :disabled="actionLoading === 'flush'" @click="flushCache">
-          {{ actionLoading === 'flush' ? '⏳' : '🗑️' }} Cache Temizle
+          {{ actionLoading === 'flush' ? '⏳' : '🗑️' }} {{ t('cache.clearCache') }}
         </button>
       </div>
     </div>
 
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <p>Redis durumu kontrol ediliyor...</p>
+      <p>{{ t('cache.checking') }}</p>
     </div>
 
     <!-- Kurulu Değil -->
     <div v-else-if="!stats.installed" class="install-prompt">
       <div class="prompt-icon">⚡</div>
-      <h3>Redis Cache Kurulu Değil</h3>
-      <p>Redis, web sitelerinizi 10 kata kadar hizlandirabilir. Tek tikla kurun.</p>
+      <h3>{{ t('cache.notInstalled') }}</h3>
+      <p>{{ t('cache.notInstalledDesc') }}</p>
       <div class="prompt-actions">
         <button class="btn-install" :disabled="installLoading" @click="installRedis">
           <span v-if="installLoading" class="btn-spinner"></span>
-          {{ installLoading ? 'Kuruluyor...' : '📥 Redis Kur' }}
+          {{ installLoading ? t('cache.installing') : '📥 ' + t('cache.install') }}
         </button>
-        <code class="prompt-cmd">sudo apt install redis-server -y</code>
+        <code class="prompt-cmd">{{ t('cache.installCmd') }}</code>
       </div>
     </div>
 
@@ -121,13 +124,13 @@ onMounted(loadStatus)
             <span v-if="stats.active" class="power-dot"></span>
           </div>
           <div class="power-info">
-            <span class="power-name">Redis Server</span>
-            <span class="power-status">{{ stats.active ? 'Çalışıyor · Port 6379' : 'Durdu' }}</span>
+            <span class="power-name">{{ t('cache.redisServer') }}</span>
+            <span class="power-status">{{ stats.active ? t('cache.running') : t('cache.stopped') }}</span>
           </div>
         </div>
         <div class="power-actions">
-          <span v-if="stats.active" class="status-tag running">Aktif</span>
-          <span v-else class="status-tag stopped">Pasif</span>
+          <span v-if="stats.active" class="status-tag running">{{ t('security.active') }}</span>
+          <span v-else class="status-tag stopped">{{ t('security.inactive') }}</span>
           <label class="toggle-switch" :class="{ loading: !!actionLoading && actionLoading !== 'flush' && actionLoading !== 'info' }">
             <input
               type="checkbox"
@@ -145,45 +148,45 @@ onMounted(loadStatus)
         <div class="stat-card">
           <span class="stat-icon">📦</span>
           <span class="stat-val">{{ stats.version || '-' }}</span>
-          <span class="stat-lbl">Versiyon</span>
+          <span class="stat-lbl">{{ t('cache.version') }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-icon">⏱️</span>
-          <span class="stat-val">{{ stats.uptime_days || '0' }} gün</span>
-          <span class="stat-lbl">Uptime</span>
+          <span class="stat-val">{{ stats.uptime_days || '0' }} {{ t('cache.uptimeDays').replace('{count}', '') }}</span>
+          <span class="stat-lbl">{{ t('cache.uptime') }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-icon">💾</span>
           <span class="stat-val">{{ stats.used_memory || '-' }}</span>
-          <span class="stat-lbl">Bellek</span>
+          <span class="stat-lbl">{{ t('cache.memory') }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-icon">👥</span>
           <span class="stat-val">{{ stats.connected || '0' }}</span>
-          <span class="stat-lbl">Bağlantı</span>
+          <span class="stat-lbl">{{ t('cache.connection') }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-icon">🔑</span>
           <span class="stat-val">{{ stats.total_keys || '0' }}</span>
-          <span class="stat-lbl">Anahtar</span>
+          <span class="stat-lbl">{{ t('cache.keys') }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-icon">⚡</span>
           <span class="stat-val">{{ stats.ops_per_sec || '0' }}/s</span>
-          <span class="stat-lbl">İşlem</span>
+          <span class="stat-lbl">{{ t('cache.ops') }}</span>
         </div>
       </div>
 
       <!-- Boot & Restart -->
       <div class="action-bar">
         <button class="btn-sm" :disabled="!!actionLoading" @click="doAction('restart')">
-          🔄 Yeniden Başlat
+          🔄 {{ t('cache.restart') }}
         </button>
         <button v-if="stats.enabled" class="btn-sm btn-boot-on" @click="doAction('disable')">
-          🟢 Boot'ta Otomatik Baslar
+          🟢 {{ t('cache.bootOn') }}
         </button>
         <button v-else class="btn-sm btn-boot-off" @click="doAction('enable')">
-          ⏻ Boot'ta Baslamaz
+          ⏻ {{ t('cache.bootOff') }}
         </button>
       </div>
 
@@ -191,7 +194,7 @@ onMounted(loadStatus)
       <div v-if="showInfo" class="modal-overlay" @click.self="showInfo = false">
         <div class="modal modal-lg">
           <div class="modal-header">
-            <h3>📋 Redis Detaylı Bilgi</h3>
+            <h3>📋 {{ t('cache.detailInfo') }}</h3>
             <button class="modal-close" @click="showInfo = false">✕</button>
           </div>
           <div class="modal-body">

@@ -5,7 +5,7 @@
   <div class="auth-layout">
     <div class="auth-container">
       <div class="auth-header">
-        <h1>OpenSpeed Panel</h1>
+        <h1>Aura Panel</h1>
         <p>Modern Hosting Kontrol Paneli</p>
       </div>
       <div class="auth-content">

@@ -17,13 +17,16 @@ type Config struct {
 	Log      LogConfig      `yaml:"log"`
 	OLS      OLSConfig      `yaml:"ols"`
 	DataDir  string         `yaml:"data_dir"`
+	Security SecurityConfig `yaml:"security"`
 }
 
 // ServerConfig HTTP sunucu ayarları
 type ServerConfig struct {
-	Host string     `yaml:"host"`
-	Port int        `yaml:"port"`
-	TLS  TLSConfig  `yaml:"tls"`
+	Host           string   `yaml:"host"`
+	Port           int      `yaml:"port"`
+	TLS            TLSConfig `yaml:"tls"`
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // TLSConfig TLS ayarları
@@ -31,6 +34,13 @@ type TLSConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
+}
+
+// SecurityConfig güvenlik ayarları
+type SecurityConfig struct {
+	StrictFileJail bool   `yaml:"strict_file_jail"`
+	MasterKeyPath  string `yaml:"master_key_path"`
+	JWTKeyPath     string `yaml:"jwt_key_path"`
 }
 
 // AuthConfig kimlik doğrulama ayarları
@@ -75,6 +85,8 @@ func Default() *Config {
 			TLS: TLSConfig{
 				Enabled: false,
 			},
+			AllowedOrigins: []string{},
+			TrustedProxies: []string{"127.0.0.1", "::1"},
 		},
 		Auth: AuthConfig{
 			JWTSecret:          generateRandomSecret(),
@@ -98,6 +110,11 @@ func Default() *Config {
 			BinPath:   "/usr/local/lsws/bin/lshttpd",
 		},
 		DataDir: "/var/lib/ospanel",
+		Security: SecurityConfig{
+			StrictFileJail: true,
+			MasterKeyPath:  "/etc/ospanel/master.key",
+			JWTKeyPath:     "/etc/ospanel/jwt.key",
+		},
 	}
 }
 
@@ -108,6 +125,8 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// Config yoksa JWT/ master key persistence'ini hazırla
+			ensureJWTSecret(cfg)
 			return cfg, nil
 		}
 		return nil, err
@@ -125,17 +144,78 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	// JWT secret persistence: boşsa veya default ise diskten yükle/kaydet
+	ensureJWTSecret(cfg)
+
+	// Security default'ları doldur
+	if cfg.Security.MasterKeyPath == "" {
+		cfg.Security.MasterKeyPath = "/etc/ospanel/master.key"
+	}
+	if cfg.Security.JWTKeyPath == "" {
+		cfg.Security.JWTKeyPath = "/etc/ospanel/jwt.key"
+	}
+
 	return cfg, nil
+}
+
+// ensureJWTSecret JWT secret'ın restart'ta değişmemesi için diskte kalıcı tutar
+func ensureJWTSecret(cfg *Config) {
+	// Eğer config'te explicit secret varsa diske yazma, aynen kullan
+	// Ancak boş veya 64 hex (32 byte) default gibiyse ve dosya varsa oradan oku
+	keyPath := cfg.Security.JWTKeyPath
+	if keyPath == "" {
+		keyPath = "/etc/ospanel/jwt.key"
+	}
+
+	// Env override en yüksek öncelik
+	if envKey := os.Getenv("OSPANEL_JWT_SECRET"); envKey != "" {
+		cfg.Auth.JWTSecret = envKey
+		return
+	}
+
+	// Dosyadan oku
+	if data, err := os.ReadFile(keyPath); err == nil {
+		trimmed := string(data)
+		// Trim newline/space
+		trimmed = trimSpace(trimmed)
+		if len(trimmed) >= 32 {
+			cfg.Auth.JWTSecret = trimmed
+			return
+		}
+	}
+
+	// Config'te valid secret varsa onu persist et
+	if cfg.Auth.JWTSecret != "" && len(cfg.Auth.JWTSecret) >= 32 {
+		// Persist et (best effort, permission 0600)
+		_ = os.MkdirAll(filepath.Dir(keyPath), 0700)
+		_ = os.WriteFile(keyPath, []byte(cfg.Auth.JWTSecret), 0600)
+		return
+	}
+
+	// Hiçbiri yoksa yeni üret ve persist et
+	newSecret := generateRandomSecret()
+	cfg.Auth.JWTSecret = newSecret
+	_ = os.MkdirAll(filepath.Dir(keyPath), 0700)
+	_ = os.WriteFile(keyPath, []byte(newSecret), 0600)
+}
+
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\n' || s[start] == '\r' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\n' || s[end-1] == '\r' || s[end-1] == '\t') {
+		end--
+	}
+	return s[start:end]
 }
 
 // generateRandomSecret crypto/rand ile gerçek rastgele 32-byte secret üretir
 func generateRandomSecret() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback: crypto/rand başarısız olursa (çok düşük ihtimal)
-		for i := range b {
-			b[i] = byte(i*7 ^ 0xA5)
-		}
+		panic("crypto/rand failed: " + err.Error())
 	}
 	return hex.EncodeToString(b)
 }

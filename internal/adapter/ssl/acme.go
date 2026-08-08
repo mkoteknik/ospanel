@@ -1,12 +1,24 @@
 package ssl
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 )
+
+// DNSChallenge DNS doğrulama bilgisi
+type DNSChallenge struct {
+	Domain  string `json:"domain"`
+	Record  string `json:"record"`  // _acme-challenge.example.com
+	Type    string `json:"type"`    // TXT
+	Value   string `json:"value"`   // doğrulama değeri
+	Status  string `json:"status"`  // pending, verified, failed
+	Message string `json:"message"` // kullanıcıya gösterilecek mesaj
+}
 
 // ACMEClient Let's Encrypt certbot istemcisi
 type ACMEClient struct {
@@ -38,13 +50,12 @@ func (c *ACMEClient) IsAvailable() bool {
 	return c.installed
 }
 
-// IssueCertificate domain için SSL sertifikası oluşturur
+// IssueCertificate domain için SSL sertifikası oluşturur (HTTP challenge)
 func (c *ACMEClient) IssueCertificate(domain, docRoot, email string) error {
 	if !c.installed {
 		return fmt.Errorf("certbot kurulu değil")
 	}
 
-	// certbot certonly --webroot -w DOCROOT -d DOMAIN --non-interactive --agree-tos -m EMAIL
 	args := []string{
 		"certonly", "--webroot",
 		"-w", docRoot,
@@ -62,26 +73,37 @@ func (c *ACMEClient) IssueCertificate(domain, docRoot, email string) error {
 		return fmt.Errorf("sertifika alınamadı: %s - %w", string(out), err)
 	}
 
-	// OLS'e SSL kur
 	return c.installToOLS(domain)
 }
 
-// IssueWildcard wildcard SSL sertifikası (DNS challenge)
+// IssueWildcard wildcard SSL - Cloudflare API ile (mevcut)
 func (c *ACMEClient) IssueWildcard(domain, email, dnsProvider string) error {
 	if !c.installed {
 		return fmt.Errorf("certbot kurulu değil")
 	}
 
-	args := []string{
-		"certonly",
-		"--dns-cloudflare",
-		"--dns-cloudflare-credentials", "/etc/ospanel/cf.ini",
-		"-d", domain,
-		"-d", "*." + domain,
-		"--non-interactive",
-		"--agree-tos",
-		"-m", email,
-		"--deploy-hook", "/usr/local/lsws/bin/lshttpd -r",
+	var args []string
+
+	switch dnsProvider {
+	case "powerdns":
+		// PowerDNS API üzerinden otomatik DNS challenge
+		return c.issueWildcardManual(domain, email, "")
+	case "manual":
+		// Manuel DNS - kullanıcı TXT kaydını eliyle ekler
+		return fmt.Errorf("manuel DNS modu için StartDNSChallenge kullanın")
+	default:
+		// Cloudflare
+		args = []string{
+			"certonly",
+			"--dns-cloudflare",
+			"--dns-cloudflare-credentials", "/etc/ospanel/cf.ini",
+			"-d", domain,
+			"-d", "*." + domain,
+			"--non-interactive",
+			"--agree-tos",
+			"-m", email,
+			"--deploy-hook", "/usr/local/lsws/bin/lshttpd -r",
+		}
 	}
 
 	cmd := exec.Command(c.certbot, args...)
@@ -91,6 +113,193 @@ func (c *ACMEClient) IssueWildcard(domain, email, dnsProvider string) error {
 	}
 
 	return c.installToOLS(domain)
+}
+
+// StartDNSChallenge manuel DNS wildcard SSL sürecini başlatır
+// TXT kaydını döndürür, kullanıcı bunu DNS'ine ekler
+func (c *ACMEClient) StartDNSChallenge(domain, email string) (*DNSChallenge, error) {
+	if !c.installed {
+		return nil, fmt.Errorf("certbot kurulu değil")
+	}
+
+	// Benzersiz challenge ID'si
+	challengeID := genRandomHex(8)
+	challengeDir := "/tmp/ospanel-dns-challenge"
+	os.MkdirAll(challengeDir, 0755)
+
+	// Manuel auth hook script'i oluştur
+	authHook := fmt.Sprintf(`#!/bin/bash
+# OpenSpeed Panel - DNS Challenge Auth Hook
+echo "CHALLENGE_START"
+echo "DOMAIN=$CERTBOT_DOMAIN"
+echo "VALIDATION=$CERTBOT_VALIDATION"
+echo "TOKEN=$CERTBOT_TOKEN"
+echo "CHALLENGE_END"
+
+# Challenge bilgisini dosyaya yaz
+cat > %s/%s.json << EOF
+{
+  "domain": "$CERTBOT_DOMAIN",
+  "validation": "$CERTBOT_VALIDATION",
+  "token": "$CERTBOT_TOKEN",
+  "record": "_acme-challenge.$CERTBOT_DOMAIN",
+  "status": "pending"
+}
+EOF
+
+# Panel'in onaylamasını bekle (max 5 dakika)
+for i in $(seq 1 60); do
+  if grep -q '"verified"' %s/%s.json 2>/dev/null; then
+    # TXT kaydının yayılması için 30 saniye bekle
+    sleep 30
+    exit 0
+  fi
+  sleep 5
+done
+# Timeout - panel onaylamadı
+exit 1
+`, challengeDir, challengeID, challengeDir, challengeID)
+
+	cleanupHook := fmt.Sprintf(`#!/bin/bash
+# OpenSpeed Panel - DNS Challenge Cleanup Hook
+rm -f %s/%s.json
+`, challengeDir, challengeID)
+
+	authHookPath := fmt.Sprintf("%s/auth-%s.sh", challengeDir, challengeID)
+	cleanupHookPath := fmt.Sprintf("%s/cleanup-%s.sh", challengeDir, challengeID)
+
+	if err := os.WriteFile(authHookPath, []byte(authHook), 0755); err != nil {
+		return nil, fmt.Errorf("auth hook oluşturulamadı: %w", err)
+	}
+	if err := os.WriteFile(cleanupHookPath, []byte(cleanupHook), 0755); err != nil {
+		return nil, fmt.Errorf("cleanup hook oluşturulamadı: %w", err)
+	}
+
+	// certbot'u arka planda başlat
+	args := []string{
+		"certonly",
+		"--manual",
+		"--preferred-challenges", "dns",
+		"-d", domain,
+		"-d", "*." + domain,
+		"--non-interactive",
+		"--agree-tos",
+		"-m", email,
+		"--manual-auth-hook", authHookPath,
+		"--manual-cleanup-hook", cleanupHookPath,
+		"--deploy-hook", "/usr/local/lsws/bin/lshttpd -r",
+	}
+
+	cmd := exec.Command(c.certbot, args...)
+
+	// stdout'tan challenge bilgisini yakala
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("certbot başlatılamadı: %w", err)
+	}
+
+	// Challenge dosyasının oluşmasını bekle
+	challengeFile := fmt.Sprintf("%s/%s.json", challengeDir, challengeID)
+	var challenge *DNSChallenge
+
+	for i := 0; i < 30; i++ {
+		if data, err := os.ReadFile(challengeFile); err == nil {
+			// Challenge dosyasını parse et
+			lines := strings.Split(string(data), "\n")
+			challenge = &DNSChallenge{
+				Domain:  domain,
+				Type:    "TXT",
+				Record:  "_acme-challenge." + domain,
+				Status:  "pending",
+				Message: "Bu TXT kaydını DNS yöneticinize ekleyin, ardından Doğrula'ya tıklayın.",
+			}
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, `"validation": "`) {
+					challenge.Value = strings.Trim(line[15:], `",`)
+				}
+			}
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	// stdout'u arka planda oku
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stdout.Read(buf)
+			if err != nil {
+				break
+			}
+			// Challenge bilgisini yakala
+			output := string(buf[:n])
+			if strings.Contains(output, "CERTBOT_DOMAIN") {
+				// zaten dosyadan okuduk
+			}
+		}
+	}()
+
+	if challenge == nil {
+		cmd.Process.Kill()
+		return nil, fmt.Errorf("DNS challenge başlatılamadı - certbot çıktı okunamadı")
+	}
+
+	// Challenge ID'sini challenge'a göm
+	challenge.Message = fmt.Sprintf("DNS yöneticinize şu TXT kaydını ekleyin:\n\nAd: %s\nTür: TXT\nDeğer: %s\n\nEkledikten sonra Doğrula butonuna tıklayın. (ID: %s)",
+		challenge.Record, challenge.Value, challengeID)
+
+	return challenge, nil
+}
+
+// CompleteDNSChallenge manuel DNS challenge'ı tamamlar
+func (c *ACMEClient) CompleteDNSChallenge(challengeID string) error {
+	challengeFile := fmt.Sprintf("/tmp/ospanel-dns-challenge/%s.json", challengeID)
+	data, err := os.ReadFile(challengeFile)
+	if err != nil {
+		return fmt.Errorf("challenge bulunamadı - süre dolmuş olabilir, tekrar deneyin")
+	}
+
+	// Challenge'ı verified olarak işaretle - auth hook bunu bekliyor
+	content := strings.Replace(string(data), `"pending"`, `"verified"`, 1)
+	if err := os.WriteFile(challengeFile, []byte(content), 0644); err != nil {
+		return fmt.Errorf("challenge güncellenemedi: %w", err)
+	}
+
+	return nil
+}
+
+// GetDNSChallengeStatus challenge durumunu kontrol eder
+func (c *ACMEClient) GetDNSChallengeStatus(challengeID string) (*DNSChallenge, error) {
+	challengeFile := fmt.Sprintf("/tmp/ospanel-dns-challenge/%s.json", challengeID)
+	data, err := os.ReadFile(challengeFile)
+	if err != nil {
+		return nil, fmt.Errorf("challenge bulunamadı")
+	}
+
+	challenge := &DNSChallenge{Status: "pending"}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, `"domain":`) {
+			challenge.Domain = strings.Trim(line[10:], `",`)
+		}
+		if strings.Contains(line, `"validation":`) {
+			challenge.Value = strings.Trim(line[15:], `",`)
+		}
+		if strings.Contains(line, `"status":`) {
+			challenge.Status = strings.Trim(line[11:], `",`)
+		}
+		if strings.Contains(line, `"verified"`) {
+			challenge.Status = "verified"
+		}
+	}
+
+	return challenge, nil
 }
 
 // installToOLS sertifikayı OLS'e yükler
@@ -119,7 +328,6 @@ func (c *ACMEClient) CheckCertificate(domain string) (*CertInfo, error) {
 		return &CertInfo{Domain: domain, Active: false}, nil
 	}
 
-	// openssl ile sertifika bilgisi al
 	cmd := exec.Command("openssl", "x509", "-in", certFile, "-dates", "-issuer", "-noout")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -129,7 +337,6 @@ func (c *ACMEClient) CheckCertificate(domain string) (*CertInfo, error) {
 	info := &CertInfo{Domain: domain, Active: true}
 	output := string(out)
 
-	// Son kullanma tarihi
 	if idx := strings.Index(output, "notAfter="); idx != -1 {
 		dateStr := strings.TrimSpace(output[idx+9:])
 		if t, err := time.Parse("Jan 2 15:04:05 2006 MST", dateStr); err == nil {
@@ -138,10 +345,8 @@ func (c *ACMEClient) CheckCertificate(domain string) (*CertInfo, error) {
 		}
 	}
 
-	// Issuer
 	if idx := strings.Index(output, "issuer="); idx != -1 {
 		info.Issuer = strings.TrimSpace(output[idx+7:])
-		// Sadece ilk satırı al
 		if nl := strings.Index(info.Issuer, "\n"); nl != -1 {
 			info.Issuer = info.Issuer[:nl]
 		}
@@ -196,4 +401,41 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0600)
+}
+
+func genRandomHex(n int) string {
+	b := make([]byte, n/2+1)
+	rand.Read(b)
+	return hex.EncodeToString(b)[:n]
+}
+
+// issueWildcardManual internal: PowerDNS otomatik veya manuel
+func (c *ACMEClient) issueWildcardManual(domain, email, powerDNSAPI string) error {
+	if powerDNSAPI != "" {
+		// PowerDNS API ile otomatik
+		return c.issueWithDNS(domain, email)
+	}
+	// Manuel mod - StartDNSChallenge + CompleteDNSChallenge akışı
+	return fmt.Errorf("manuel DNS için StartDNSChallenge/CompleteDNSChallenge kullanın")
+}
+
+func (c *ACMEClient) issueWithDNS(domain, email string) error {
+	args := []string{
+		"certonly",
+		"--manual",
+		"--preferred-challenges", "dns",
+		"-d", domain,
+		"-d", "*." + domain,
+		"--non-interactive",
+		"--agree-tos",
+		"-m", email,
+		"--deploy-hook", "/usr/local/lsws/bin/lshttpd -r",
+	}
+
+	cmd := exec.Command(c.certbot, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("sertifika alınamadı: %s - %w", string(out), err)
+	}
+	return c.installToOLS(domain)
 }

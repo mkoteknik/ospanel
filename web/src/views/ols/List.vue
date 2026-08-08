@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '@/api/client'
+
+const { t } = useI18n()
 
 const olsInfo = ref<any>({})
 const loading = ref(true)
@@ -33,11 +36,11 @@ async function openWebAdmin() {
 
 async function changePassword() {
   if (!newPass.value || newPass.value.length < 6) {
-    alert('Şifre en az 6 karakter olmalı')
+    alert(t('ols.passwordMin'))
     return
   }
   if (newPass.value !== newPassConfirm.value) {
-    alert('Şifreler eşleşmiyor')
+    alert(t('ols.passwordMismatch'))
     return
   }
   actionLoading.value = 'password'
@@ -46,7 +49,7 @@ async function changePassword() {
     showPasswordModal.value = false
     newPass.value = ''
     newPassConfirm.value = ''
-    alert('OLS şifresi değiştirildi!')
+    alert(t('ols.passwordChanged'))
     await loadStatus()
   } catch { }
   finally { actionLoading.value = '' }
@@ -59,18 +62,18 @@ onMounted(loadStatus)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>OpenLiteSpeed İnce Ayar</h2>
-        <p>OLS sunucu durumu, yapılandırma ve hızlı kontroller.</p>
+        <h2>{{ t('ols.title') }}</h2>
+        <p>{{ t('ols.subtitle') }}</p>
       </div>
       <div class="header-actions">
-        <button class="btn-refresh" @click="loadStatus">🔄 Yenile</button>
-        <button class="btn-primary" @click="openWebAdmin">🖥️ OLS WebAdmin</button>
+        <button class="btn-refresh" @click="loadStatus">🔄 {{ t('ols.refresh') }}</button>
+        <button class="btn-primary" @click="openWebAdmin">🖥️ {{ t('ols.webadmin') }}</button>
       </div>
     </div>
 
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <p>OLS durumu kontrol ediliyor...</p>
+      <p>{{ t('ols.checking') }}</p>
     </div>
 
     <div v-else>
@@ -79,56 +82,56 @@ onMounted(loadStatus)
         <div class="info-card" :class="olsInfo.has_password ? 'ok' : 'warn'">
           <span class="ic-icon">🔗</span>
           <div>
-            <span class="ic-val">{{ olsInfo.has_password ? 'Bağlı' : 'Bağlı Değil' }}</span>
-            <span class="ic-lbl">OLS Bağlantısı</span>
+            <span class="ic-val">{{ olsInfo.has_password ? t('ols.connected') : t('ols.notConnected') }}</span>
+            <span class="ic-lbl">{{ t('ols.connection') }}</span>
           </div>
         </div>
         <div class="info-card">
           <span class="ic-icon">👤</span>
           <div>
             <span class="ic-val">{{ olsInfo.username || 'admin' }}</span>
-            <span class="ic-lbl">Admin Kullanıcı</span>
+            <span class="ic-lbl">{{ t('ols.adminUser') }}</span>
           </div>
         </div>
         <div class="info-card">
           <span class="ic-icon">🌐</span>
           <div>
             <span class="ic-val">{{ olsInfo.ols_admin_url || 'localhost:7080' }}</span>
-            <span class="ic-lbl">Admin URL</span>
+            <span class="ic-lbl">{{ t('ols.adminUrl') }}</span>
           </div>
         </div>
       </div>
 
       <!-- Hızlı İşlemler -->
       <div class="section">
-        <h3>⚡ Hızlı İşlemler</h3>
+        <h3>⚡ {{ t('ols.quick') }}</h3>
         <div class="quick-actions">
           <button class="qa-card" @click="openWebAdmin">
             <span class="qa-icon">🖥️</span>
-            <span class="qa-title">OLS WebAdmin</span>
-            <span class="qa-desc">Otomatik giriş ile yeni sekmede aç</span>
+            <span class="qa-title">{{ t('ols.webadmin') }}</span>
+            <span class="qa-desc">{{ t('ols.webadminDesc') }}</span>
           </button>
           <button class="qa-card" @click="showPasswordModal = true">
             <span class="qa-icon">🔑</span>
-            <span class="qa-title">Şifre Değiştir</span>
-            <span class="qa-desc">OLS admin şifresini güncelle</span>
+            <span class="qa-title">{{ t('ols.changePassword') }}</span>
+            <span class="qa-desc">{{ t('ols.changePasswordDesc') }}</span>
           </button>
           <router-link to="/domains" class="qa-card">
             <span class="qa-icon">🌐</span>
-            <span class="qa-title">Domain Yönetimi</span>
-            <span class="qa-desc">Virtual host ekle / sil / PHP değiştir</span>
+            <span class="qa-title">{{ t('ols.domainMgmt') }}</span>
+            <span class="qa-desc">{{ t('ols.domainMgmtDesc') }}</span>
           </router-link>
           <router-link to="/logs" class="qa-card">
             <span class="qa-icon">📋</span>
-            <span class="qa-title">Hata Logları</span>
-            <span class="qa-desc">OLS error.log ve access.log görüntüle</span>
+            <span class="qa-title">{{ t('ols.errorLogs') }}</span>
+            <span class="qa-desc">{{ t('ols.errorLogsDesc') }}</span>
           </router-link>
         </div>
       </div>
 
       <!-- PHP Handler -->
       <div class="section">
-        <h3>🐘 PHP LSAPI Sürümleri</h3>
+        <h3>{{ t('ols.phpVersions') }}</h3>
         <div class="php-grid">
           <div class="php-card">
             <span class="php-ver">8.2</span>
@@ -137,7 +140,7 @@ onMounted(loadStatus)
           <div class="php-card active">
             <span class="php-ver">8.3</span>
             <span class="php-path">/usr/local/lsws/lsphp83/bin/lsphp</span>
-            <span class="php-default">Varsayılan</span>
+            <span class="php-default">{{ t('ols.default') }}</span>
           </div>
           <div class="php-card">
             <span class="php-ver">8.4</span>
@@ -148,49 +151,49 @@ onMounted(loadStatus)
 
       <!-- Yapılandırma -->
       <div class="section">
-        <h3>⚙️ Önemli Ayarlar</h3>
+        <h3>⚙️ {{ t('ols.important') }}</h3>
         <div class="config-grid">
           <div class="config-item">
             <div class="cfg-left">
-              <span class="cfg-label">Gzip Sıkıştırma</span>
-              <span class="cfg-desc">Tüm vhost'larda otomatik aktif</span>
+              <span class="cfg-label">{{ t('ols.gzip') }}</span>
+              <span class="cfg-desc">{{ t('ols.gzipDesc') }}</span>
             </div>
-            <span class="cfg-val on">Aktif</span>
+            <span class="cfg-val on">{{ t('ols.active') }}</span>
           </div>
           <div class="config-item">
             <div class="cfg-left">
-              <span class="cfg-label">Brotli Sıkıştırma</span>
-              <span class="cfg-desc">Modern tarayıcılar için</span>
+              <span class="cfg-label">{{ t('ols.brotli') }}</span>
+              <span class="cfg-desc">{{ t('ols.brotliDesc') }}</span>
             </div>
-            <span class="cfg-val on">Aktif</span>
+            <span class="cfg-val on">{{ t('ols.active') }}</span>
           </div>
           <div class="config-item">
             <div class="cfg-left">
-              <span class="cfg-label">.htaccess Desteği</span>
-              <span class="cfg-desc">Rewrite + autoLoadHtaccess</span>
+              <span class="cfg-label">{{ t('ols.htaccess') }}</span>
+              <span class="cfg-desc">{{ t('ols.htaccessDesc') }}</span>
             </div>
-            <span class="cfg-val on">Aktif</span>
+            <span class="cfg-val on">{{ t('ols.active') }}</span>
           </div>
           <div class="config-item">
             <div class="cfg-left">
-              <span class="cfg-label">Watchdog</span>
-              <span class="cfg-desc">.htaccess değişiklik → otomatik reload</span>
+              <span class="cfg-label">{{ t('ols.watchdog') }}</span>
+              <span class="cfg-desc">{{ t('ols.watchdogDesc') }}</span>
             </div>
-            <span class="cfg-val on">Aktif</span>
+            <span class="cfg-val on">{{ t('ols.active') }}</span>
           </div>
           <div class="config-item">
             <div class="cfg-left">
-              <span class="cfg-label">Let's Encrypt Auto-Renew</span>
-              <span class="cfg-desc">Her gün 03:00'te kontrol</span>
+              <span class="cfg-label">{{ t('ols.letsencrypt') }}</span>
+              <span class="cfg-desc">{{ t('ols.letsencryptDesc') }}</span>
             </div>
-            <span class="cfg-val on">Aktif</span>
+            <span class="cfg-val on">{{ t('ols.active') }}</span>
           </div>
           <div class="config-item">
             <div class="cfg-left">
-              <span class="cfg-label">Fail2ban OLS Koruması</span>
-              <span class="cfg-desc">5 başarısız deneme → 1 saat ban</span>
+              <span class="cfg-label">{{ t('ols.fail2ban') }}</span>
+              <span class="cfg-desc">{{ t('ols.fail2banDesc') }}</span>
             </div>
-            <span class="cfg-val on">Aktif</span>
+            <span class="cfg-val on">{{ t('ols.active') }}</span>
           </div>
         </div>
       </div>
@@ -199,12 +202,12 @@ onMounted(loadStatus)
     <!-- Şifre Modal -->
     <div v-if="showPasswordModal" class="modal-overlay" @click.self="showPasswordModal = false">
       <div class="modal">
-        <div class="modal-header"><h3>🔑 OLS Şifre Değiştir</h3><button class="modal-close" @click="showPasswordModal = false">✕</button></div>
+        <div class="modal-header"><h3>🔑 {{ t('ols.passwordModal') }}</h3><button class="modal-close" @click="showPasswordModal = false">✕</button></div>
         <div class="modal-body">
-          <div class="form-group"><label>Yeni Şifre</label><input v-model="newPass" type="password" placeholder="En az 6 karakter" /></div>
-          <div class="form-group"><label>Şifre Tekrar</label><input v-model="newPassConfirm" type="password" placeholder="Aynı şifreyi tekrar girin" /></div>
+          <div class="form-group"><label>{{ t('ols.newPassword') }}</label><input v-model="newPass" type="password" :placeholder="t('ols.passwordHint')" /></div>
+          <div class="form-group"><label>{{ t('ols.confirmPassword') }}</label><input v-model="newPassConfirm" type="password" :placeholder="t('ols.passwordConfirmHint')" /></div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showPasswordModal = false">İptal</button><button class="btn-primary" :disabled="actionLoading === 'password'" @click="changePassword">Kaydet</button></div>
+        <div class="modal-footer"><button class="btn-cancel" @click="showPasswordModal = false">{{ t('common.cancel') }}</button><button class="btn-primary" :disabled="actionLoading === 'password'" @click="changePassword">{{ t('common.save') }}</button></div>
       </div>
     </div>
   </div>

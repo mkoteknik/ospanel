@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +38,11 @@ func NewRateLimiter(rate float64, burst int) *RateLimiter {
 	}()
 
 	return rl
+}
+
+// NewLoginLimiter login için sıkı limiter (5 istek/dk, burst 5)
+func NewLoginLimiter() *RateLimiter {
+	return NewRateLimiter(5.0/60.0, 5)
 }
 
 // Limit rate limiting middleware'i
@@ -88,30 +95,81 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// getClientIP istemci IP'sini alır (proxy arkası desteği ile)
+// getClientIP istemci IP'sini alır — sadece trusted proxy ise XFF'e güvenir
 func getClientIP(r *http.Request) string {
-	// X-Forwarded-For header'ını kontrol et
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := splitAndTrim(xff, ",")
-		if len(parts) > 0 {
-			return parts[0]
+	remoteIP := stripPort(r.RemoteAddr)
+
+	// Sadece loopback veya private ağdan geliyorsa XFF'e güven
+	if isTrustedProxy(remoteIP) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := splitAndTrim(xff, ",")
+			if len(parts) > 0 && isValidIP(parts[0]) {
+				return parts[0]
+			}
 		}
-	}
-	// X-Real-IP header'ını kontrol et
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// RemoteAddr kullan
-	ip := r.RemoteAddr
-	if idx := len(ip) - 1; idx >= 0 {
-		// Port kısmını kaldır
-		for i := len(ip) - 1; i >= 0; i-- {
-			if ip[i] == ':' {
-				return ip[:i]
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			if isValidIP(strings.TrimSpace(xri)) {
+				return strings.TrimSpace(xri)
 			}
 		}
 	}
-	return ip
+	return remoteIP
+}
+
+func isTrustedProxy(ip string) bool {
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return true
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	// Private ranges
+	privateBlocks := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"fc00::/7",
+	}
+	for _, block := range privateBlocks {
+		_, cidr, _ := net.ParseCIDR(block)
+		if cidr.Contains(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
+func isValidIP(s string) bool {
+	return net.ParseIP(s) != nil
+}
+
+func stripPort(addr string) string {
+	// IPv6 [::1]:port desteği
+	if strings.HasPrefix(addr, "[") {
+		if idx := strings.LastIndex(addr, "]"); idx != -1 {
+			if len(addr) > idx+1 && addr[idx+1] == ':' {
+				return addr[1:idx]
+			}
+			return addr[1:idx]
+		}
+	}
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		// Eğer : sonrası port gibi numerik ise strip et
+		if _, err := net.LookupPort("tcp", addr[idx+1:]); err == nil {
+			return addr[:idx]
+		}
+		// Basit: son : den öncesini al eğer IP ise
+		ipPart := addr[:idx]
+		if net.ParseIP(ipPart) != nil {
+			return ipPart
+		}
+		// Host:port değilse olduğu gibi bırak
+		if strings.Count(addr, ":") == 1 {
+			return addr[:idx]
+		}
+	}
+	return addr
 }
 
 func splitAndTrim(s, sep string) []string {

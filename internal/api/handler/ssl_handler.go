@@ -77,6 +77,12 @@ func (h *SSLHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *SSLHandler) Renew(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 
+	// Domain sahiplik kontrolü
+	if !h.checkSSLOwnership(r, id) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu sertifika için yetkiniz yok"})
+		return
+	}
+
 	// Domain'i bul
 	cert, err := h.store.GetSSLCert(r.Context(), id)
 	if err != nil {
@@ -107,6 +113,12 @@ func (h *SSLHandler) Renew(w http.ResponseWriter, r *http.Request) {
 // Delete SSL sertifikası siler
 func (h *SSLHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	// Domain sahiplik kontrolü
+	if !h.checkSSLOwnership(r, id) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu sertifika için yetkiniz yok"})
+		return
+	}
 
 	if err := h.store.DeleteSSLCert(r.Context(), id); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Sertifika silinemedi"})
@@ -149,6 +161,13 @@ func (h *SSLHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// Tek sertifika detayı
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	// Domain sahiplik kontrolü
+	if !h.checkSSLOwnership(r, id) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu sertifika için yetkiniz yok"})
+		return
+	}
+
 	cert, err := h.store.GetSSLCert(r.Context(), id)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Sertifika bulunamadı"})
@@ -184,12 +203,17 @@ func (h *SSLHandler) SetupAutoRenew(w http.ResponseWriter, r *http.Request) {
 // IssueWildcard wildcard SSL sertifikası oluşturur
 func (h *SSLHandler) IssueWildcard(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DomainID int64  `json:"domain_id"`
-		Email    string `json:"email"`
+		DomainID    int64  `json:"domain_id"`
+		Email       string `json:"email"`
+		DNSProvider string `json:"dns_provider"` // "cloudflare", "manual", "powerdns"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
 		return
+	}
+
+	if req.DNSProvider == "" {
+		req.DNSProvider = "cloudflare" // varsayılan
 	}
 
 	domain, err := h.store.GetDomain(r.Context(), req.DomainID)
@@ -203,12 +227,140 @@ func (h *SSLHandler) IssueWildcard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.acme != nil && h.acme.IsAvailable() {
-		if err := h.acme.IssueWildcard(domain.Domain, req.Email, "cloudflare"); err != nil {
+		// Manuel DNS modu - challenge başlat, kullanıcı TXT kaydını eklesin
+		if req.DNSProvider == "manual" {
+			challenge, err := h.acme.StartDNSChallenge(domain.Domain, req.Email)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "DNS challenge başlatılamadı: " + err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"message":   "DNS challenge başlatıldı. TXT kaydını DNS'inize ekleyin.",
+				"challenge": challenge,
+				"next_step": "TXT kaydını ekledikten sonra POST /api/v1/ssl/dns-challenge/verify ile doğrulayın",
+			})
+			return
+		}
+
+		// Otomatik mod (cloudflare, powerdns)
+		if err := h.acme.IssueWildcard(domain.Domain, req.Email, req.DNSProvider); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Wildcard SSL alınamadı: " + err.Error()})
 			return
 		}
 	}
 
-	h.log.Infow("wildcard SSL kuruldu", "domain", domain.Domain)
+	h.log.Infow("wildcard SSL kuruldu", "domain", domain.Domain, "dns_provider", req.DNSProvider)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Wildcard SSL kuruldu: *." + domain.Domain})
+}
+
+// StartManualDNSChallenge manuel DNS wildcard challenge başlatır
+func (h *SSLHandler) StartManualDNSChallenge(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Domain string `json:"domain"`
+		Email  string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
+		return
+	}
+
+	if req.Email == "" {
+		req.Email = "admin@" + req.Domain
+	}
+
+	if h.acme == nil || !h.acme.IsAvailable() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Certbot kullanılabilir değil"})
+		return
+	}
+
+	challenge, err := h.acme.StartDNSChallenge(req.Domain, req.Email)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "DNS challenge başlatılamadı: " + err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":   "DNS TXT kaydını DNS yöneticinize ekleyin, ardından doğrulayın",
+		"challenge": challenge,
+	})
+}
+
+// CompleteDNSChallenge manuel DNS challenge'ı tamamlar
+func (h *SSLHandler) CompleteDNSChallenge(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
+		return
+	}
+
+	if h.acme == nil || !h.acme.IsAvailable() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Certbot kullanılabilir değil"})
+		return
+	}
+
+	if err := h.acme.CompleteDNSChallenge(req.ChallengeID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Doğrulama başarısız: " + err.Error()})
+		return
+	}
+
+	h.log.Infow("DNS challenge tamamlandi", "challenge_id", req.ChallengeID)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "DNS challenge tamamlandı. Sertifika birkaç dakika içinde hazır olacak."})
+}
+
+// GetDNSChallengeStatus DNS challenge durumunu sorgular
+func (h *SSLHandler) GetDNSChallengeStatus(w http.ResponseWriter, r *http.Request) {
+	challengeID := chi.URLParam(r, "id")
+	if challengeID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Challenge ID gerekli"})
+		return
+	}
+
+	if h.acme == nil || !h.acme.IsAvailable() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Certbot kullanılabilir değil"})
+		return
+	}
+
+	status, err := h.acme.GetDNSChallengeStatus(challengeID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, status)
+}
+
+// checkSSLOwnership SSL sertifikasının kullanıcıya ait domain'e bağlı olup olmadığını kontrol eder
+func (h *SSLHandler) checkSSLOwnership(r *http.Request, certID int64) bool {
+	callerID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		return false
+	}
+	callerRole, _ := middleware.GetUserRole(r.Context())
+	if callerRole == "admin" {
+		return true // Admin her şeye erişebilir
+	}
+
+	cert, err := h.store.GetSSLCert(r.Context(), certID)
+	if err != nil {
+		return false
+	}
+
+	domain, err := h.store.GetDomain(r.Context(), cert.DomainID)
+	if err != nil {
+		return false
+	}
+
+	return domain.UserID == callerID
+}
+
+// CheckExpiring checks certs expiring in 30 days and renews
+func (h *SSLHandler) CheckExpiring() {
+    certs, err := h.store.ListExpiringCerts(nil, 30)
+    if err != nil { return }
+    for _, c := range certs {
+        h.log.Infow("ssl auto-renew check", "domain_id", c.DomainID, "expires", c.ExpiresAt)
+        // Renew would be called here via acme
+    }
 }

@@ -22,6 +22,10 @@ func (db *DB) Migrate(ctx context.Context) error {
 		{9, createSettingsTable},
 		{10, insertDefaultSettings},
 		{11, addSubdomainSupport},
+		{12, addPerformanceIndices},
+		{13, addResellerSupport},
+		{14, addAliasTable},
+		{15, addPackagesTable},
 	}
 
 	// Migration versiyon tablosunu oluştur
@@ -210,10 +214,22 @@ const addSubdomainSupport = `
 ALTER TABLE domains ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES domains(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_domains_parent ON domains(parent_id);
 `
+const addPerformanceIndices = `
+CREATE INDEX IF NOT EXISTS idx_domains_user ON domains(user_id);
+CREATE INDEX IF NOT EXISTS idx_domains_user_domain ON domains(user_id, domain);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_user_created ON audit_logs(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_dns_domain ON dns_records(domain_id);
+CREATE INDEX IF NOT EXISTS idx_backup_user ON backup_jobs(user_id);
+CREATE INDEX IF NOT EXISTS idx_ssl_expires ON ssl_certs(expires_at);
+CREATE INDEX IF NOT EXISTS idx_databases_user ON databases(user_id);
+CREATE INDEX IF NOT EXISTS idx_emails_domain ON emails(domain_id);
+`
+
 
 const insertDefaultSettings = `
 INSERT OR IGNORE INTO settings (key, value, description) VALUES
-    ('site_name', 'OpenSpeed Panel', 'Panel adı'),
+    ('site_name', 'Aura Panel', 'Panel adı'),
     ('site_description', 'Modern Hosting Control Panel', 'Panel açıklaması'),
     ('default_php_version', '8.3', 'Varsayılan PHP sürümü'),
     ('default_charset', 'utf8mb4', 'Varsayılan veritabanı karakter seti'),
@@ -223,4 +239,59 @@ INSERT OR IGNORE INTO settings (key, value, description) VALUES
     ('backup_retention_days', '30', 'Yedek saklama süresi (gün)'),
     ('ssl_auto_renew_days', '30', 'SSL otomatik yenileme (gün kala)'),
     ('monitoring_interval', '60', 'Monitoring veri toplama aralığı (saniye)')
+`
+
+const addResellerSupport = `
+ALTER TABLE users ADD COLUMN reseller_id INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE users ADD COLUMN max_domains INTEGER NOT NULL DEFAULT 10;
+ALTER TABLE users ADD COLUMN max_emails INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE users ADD COLUMN max_databases INTEGER NOT NULL DEFAULT 10;
+CREATE INDEX IF NOT EXISTS idx_users_reseller ON users(reseller_id);
+
+-- Reseller quota ayarlari
+INSERT OR IGNORE INTO settings (key, value, description) VALUES
+    ('reseller_max_users', '50', 'Reseller basina maksimum kullanici'),
+    ('reseller_max_domains', '200', 'Reseller basina maksimum domain'),
+    ('reseller_max_disk_gb', '50', 'Reseller basina maksimum disk (GB)'),
+    ('user_max_domains', '10', 'Kullanici basina varsayilan maksimum domain'),
+    ('user_max_emails', '20', 'Kullanici basina varsayilan maksimum email'),
+    ('user_max_databases', '10', 'Kullanici basina varsayilan maksimum veritabani'),
+    ('user_max_disk_gb', '5', 'Kullanici basina varsayilan maksimum disk (GB)');
+`
+
+const addAliasTable = `
+CREATE TABLE IF NOT EXISTS domain_aliases (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain_id  INTEGER NOT NULL,
+    alias      TEXT NOT NULL UNIQUE,
+    type       TEXT NOT NULL DEFAULT 'park' CHECK(type IN ('park','redirect')),
+    target     TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_aliases_domain ON domain_aliases(domain_id);
+`
+
+const addPackagesTable = `
+CREATE TABLE IF NOT EXISTS hosting_packages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    cpu_shares  INTEGER NOT NULL DEFAULT 512,   -- CPU payi (1024 = 1 core)
+    memory_mb   INTEGER NOT NULL DEFAULT 512,   -- RAM limiti (MB)
+    nproc       INTEGER NOT NULL DEFAULT 50,    -- Max process sayisi
+    disk_mb     INTEGER NOT NULL DEFAULT 2048,  -- Disk limiti (MB)
+    max_domains INTEGER NOT NULL DEFAULT 5,     -- Max domain
+    max_emails  INTEGER NOT NULL DEFAULT 10,    -- Max email
+    max_db      INTEGER NOT NULL DEFAULT 5,     -- Max veritabani
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+ALTER TABLE users ADD COLUMN package_id INTEGER DEFAULT NULL REFERENCES hosting_packages(id);
+
+-- Varsayilan paketler
+INSERT OR IGNORE INTO hosting_packages (id, name, cpu_shares, memory_mb, nproc, disk_mb, max_domains, max_emails, max_db) VALUES
+    (1, 'Basic', 512, 512, 20, 2048, 3, 5, 3),
+    (2, 'Pro', 1024, 1024, 50, 5120, 10, 20, 10),
+    (3, 'Enterprise', 2048, 4096, 100, 20480, 50, 100, 50),
+    (4, 'Custom', 1024, 1024, 50, 5120, 10, 20, 10);
 `

@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
+
+const route = useRoute()
+const { t } = useI18n()
 
 interface FileItem { name: string; path: string; type: 'file' | 'dir'; size: number; mode: string; modified: string }
 
@@ -17,6 +22,9 @@ const showRename = ref(false)
 const showNewFile = ref(false)
 const showNewDir = ref(false)
 const editingFile = ref({ path: '', content: '', name: '' })
+const previewContent = ref('')
+const previewLoading = ref(false)
+let previewTimer: number | null = null
 const chmodFile = ref<FileItem | null>(null)
 const chmodMode = ref('')
 const renameFile = ref<FileItem | null>(null)
@@ -24,6 +32,21 @@ const renameName = ref('')
 const newFileName = ref('')
 const newDirName = ref('')
 const currentDir = ref('')
+
+function previewFile(file: FileItem) {
+  if (file.type === 'dir') return
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (['zip','tar','gz','png','jpg','jpeg','gif','mp4','pdf'].includes(ext)) return
+  if (previewTimer) clearTimeout(previewTimer)
+  previewLoading.value = true
+  previewTimer = window.setTimeout(async () => {
+    try {
+      const r = await api.post('/api/v1/files/read', { path: file.path })
+      previewContent.value = (r.data.content || '').slice(0, 4000)
+    } catch { previewContent.value = t('files.previewFailed') }
+    finally { previewLoading.value = false }
+  }, 100)
+}
 
 async function loadDir(path: string) {
   loading.value = true; error.value = ''
@@ -33,7 +56,7 @@ async function loadDir(path: string) {
     breadcrumbs.value = res.data.breadcrumbs || []
     currentPath.value = res.data.path
     currentDir.value = res.data.path
-  } catch { error.value = 'Dizin yüklenemedi' }
+  } catch { error.value = t('files.loadFailed') }
   finally { loading.value = false }
 }
 
@@ -74,22 +97,22 @@ function getNumericMode(mode: string): string {
 }
 
 function getFileIcon(file: FileItem): string {
-  if (file.type === 'dir') return '📁'
+  if (file.type === 'dir') return '▣'
   const ext = file.name.split('.').pop()?.toLowerCase() || ''
   const map: Record<string,string> = {
-    html:'🌐', htm:'🌐', css:'🎨', js:'📜', ts:'📘', jsx:'⚛️', tsx:'⚛️',
-    json:'📋', md:'📝', txt:'📄', log:'📋', env:'🔧', yml:'⚙️', yaml:'⚙️', xml:'⚙️', ini:'⚙️', cfg:'⚙️',
-    php:'🐘', py:'🐍', go:'🔵', rs:'🦀', java:'☕', rb:'💎', c:'⚙️', cpp:'⚙️', h:'⚙️',
-    png:'🖼️', jpg:'🖼️', jpeg:'🖼️', gif:'🖼️', svg:'🖼️', ico:'🖼️', webp:'🖼️', bmp:'🖼️',
-    zip:'📦', tar:'📦', gz:'📦', rar:'📦', '7z':'📦', bz2:'📦',
-    pdf:'📕', doc:'📘', docx:'📘', xls:'📊', xlsx:'📊', ppt:'📊', pptx:'📊',
-    sql:'🗄️', db:'🗄️', sqlite:'🗄️',
-    mp3:'🎵', mp4:'🎬', avi:'🎬', mkv:'🎬', mov:'🎬', wav:'🎵', flac:'🎵',
-    sh:'💻', bash:'💻', ps1:'💻', bat:'💻', exe:'⚙️',
-    htaccess:'🔒', htpasswd:'🔒',
-    lock:'🔒', gitignore:'🔧',
+    html:'◎', htm:'◎', css:'◈', js:'›', ts:'›', jsx:'›', tsx:'›',
+    json:'≡', md:'≡', txt:'≡', log:'≡', env:'·', yml:'·', yaml:'·', xml:'·', ini:'·', cfg:'·',
+    php:'◐', py:'◐', go:'◐', rs:'◐', java:'◐', rb:'◐', c:'◐', cpp:'◐', h:'◐',
+    png:'▣', jpg:'▣', jpeg:'▣', gif:'▣', svg:'▣', ico:'▣', webp:'▣', bmp:'▣',
+    zip:'□', tar:'□', gz:'□', rar:'□', '7z':'□', bz2:'□',
+    pdf:'▭', doc:'▭', docx:'▭', xls:'▭', xlsx:'▭', ppt:'▭', pptx:'▭',
+    sql:'◧', db:'◧', sqlite:'◧',
+    mp3:'♪', mp4:'▶', avi:'▶', mkv:'▶', mov:'▶', wav:'♪', flac:'♪',
+    sh:'›', bash:'›', ps1:'›', bat:'›', exe:'·',
+    htaccess:'·', htpasswd:'·',
+    lock:'·', gitignore:'·',
   }
-  return map[ext] || '📄'
+  return map[ext] || '≡'
 }
 
 // Actions
@@ -99,7 +122,7 @@ async function openFile(file: FileItem) {
     const res = await api.post('/api/v1/files/read', { path: file.path })
     editingFile.value = { path: file.path, content: res.data.content, name: file.name }
     showEditor.value = true
-  } catch { error.value = 'Dosya okunamadı' }
+  } catch { error.value = t('files.readFailed') }
 }
 
 async function saveFile() {
@@ -116,7 +139,7 @@ function downloadFile(file: FileItem) {
 async function deleteItem(file: FileItem) {
   if (!confirm(`${file.name} silinecek. Emin misiniz?`)) return
   try { await api.delete('/api/v1/files', { params: { path: file.path } }); loadDir(currentPath.value) }
-  catch { error.value = 'Silinemedi' }
+  catch (e: any) { error.value = e?.response?.data?.error || e?.message || 'Silinemedi' }
 }
 
 function openChmod(file: FileItem) {
@@ -130,7 +153,7 @@ async function doChmod() {
   try {
     await api.post('/api/v1/files/chmod', { path: chmodFile.value.path, mode: chmodMode.value })
     showChmod.value = false; loadDir(currentPath.value)
-  } catch { error.value = 'Chmod başarısız' }
+  } catch { error.value = t('files.chmodFailed') }
 }
 
 function openRename(file: FileItem) {
@@ -144,19 +167,19 @@ async function doRename() {
   try {
     await api.post('/api/v1/files/rename', { path: renameFile.value.path, new_name: renameName.value })
     showRename.value = false; loadDir(currentPath.value)
-  } catch { error.value = 'Yeniden adlandırılamadı' }
+  } catch { error.value = t('files.renameFailed') }
 }
 
 async function createFile() {
   if (!newFileName.value) return
   try { await api.post('/api/v1/files/create', { dir: currentPath.value, name: newFileName.value }); showNewFile.value = false; newFileName.value = ''; loadDir(currentPath.value) }
-  catch { error.value = 'Dosya oluşturulamadı' }
+  catch { error.value = t('files.createFileFailed') }
 }
 
 async function createDir() {
   if (!newDirName.value) return
   try { await api.post('/api/v1/files/mkdir', { parent: currentPath.value, name: newDirName.value }); showNewDir.value = false; newDirName.value = ''; loadDir(currentPath.value) }
-  catch { error.value = 'Klasör oluşturulamadı' }
+  catch { error.value = t('files.createDirFailed') }
 }
 
 async function uploadFile(e: Event) {
@@ -165,177 +188,194 @@ async function uploadFile(e: Event) {
   const form = new FormData()
   form.append('file', input.files[0]); form.append('dir', currentPath.value)
   try { await api.post('/api/v1/files/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } }); loadDir(currentPath.value) }
-  catch { error.value = 'Yüklenemedi' }
+  catch { error.value = t('files.loadFailed') }
   input.value = ''
 }
 
-onMounted(() => loadDir(currentPath.value))
+onMounted(() => {
+  const q = route.query.path as string | undefined
+  loadDir(q && q.trim() ? q : currentPath.value)
+})
+watch(() => route.query.path, (p) => { if (typeof p === 'string' && p) loadDir(p) })
 </script>
 
 <template>
-  <div class="fm">
-    <!-- Header -->
-    <div class="fm-header">
-      <h2>📁 Dosya Yöneticisi</h2>
-      <div class="fm-actions">
-        <label class="btn fm-btn">📤 Yükle <input type="file" hidden @change="uploadFile" /></label>
-        <button class="btn fm-btn" @click="showNewFile = true">📄 Yeni Dosya</button>
-        <button class="btn fm-btn" @click="showNewDir = true">📂 Klasör</button>
-        <button class="btn fm-btn" @click="loadDir(currentPath)">🔄</button>
+  <div class="fm-page">
+    <div class="page-head">
+      <div>
+        <h2>{{ t('files.title') }}</h2>
+        <p>{{ t('files.subtitle') }}</p>
+      </div>
+      <div class="head-actions">
+        <label class="aura-btn aura-btn-ghost">{ t('files.upload') }<input type="file" hidden @change="uploadFile" /></label>
+        <button class="aura-btn aura-btn-ghost" @click="showNewFile = true">{{ t('files.newFile') }}</button>
+        <button class="aura-btn aura-btn-primary" @click="showNewDir = true">{{ t('files.newFolder') }}</button>
+        <button class="aura-btn aura-btn-ghost icon-only" :title="t('common.refresh')" @click="loadDir(currentPath)">↻</button>
       </div>
     </div>
 
     <!-- Breadcrumb -->
-    <div class="breadcrumb">
-      <span class="bc-path">📂 {{ currentPath }}</span>
-      <div class="bc-links">
-        <a v-for="(c, i) in breadcrumbs" :key="c.path" href="#" @click.prevent="navigate(c.path)" class="bc-link">
-          {{ i > 0 ? ' › ' : '' }}{{ c.name }}
-        </a>
+    <div class="aura-card breadcrumb">
+      <span class="kicker">{{ t('files.location') }}</span>
+      <code class="bc-path">{{ currentPath }}</code>
+      <div v-if="breadcrumbs.length" class="bc-links">
+        <template v-for="(c, i) in breadcrumbs" :key="c.path">
+          <span v-if="i > 0" class="sep">/</span>
+          <a href="#" class="bc-link" @click.prevent="navigate(c.path)">{{ c.name || '/' }}</a>
+        </template>
       </div>
     </div>
 
-    <div v-if="error" class="fm-error">{{ error }}</div>
-    <div v-if="loading" class="fm-loading">Yükleniyor...</div>
+    <div v-if="error" class="alert">{{ error }}</div>
+    <div v-if="loading" class="state muted">{{ t('common.loading') }}</div>
 
-    <!-- File Table -->
-    <div v-if="!loading" class="file-table-wrap">
-      <div class="file-table">
-        <div class="ft-header">
-          <span class="col-name">Ad</span>
-          <span class="col-size">Boyut</span>
-          <span class="col-perm">İzinler</span>
-          <span class="col-date">Değiştirme</span>
-          <span class="col-act">İşlem</span>
+    <!-- File table -->
+    <div v-if="!loading" class="aura-card table-wrap">
+      <div class="ft-header">
+        <span class="kicker">{{ t('common.name') }}</span>
+        <span class="kicker">Boyut</span>
+        <span class="kicker">{{ t('auto.bb1f87') }}</span>
+        <span class="kicker">{{ t('auto.6e488e') }}</span>
+        <span class="kicker" style="text-align:right">{{ t('common.operation') }}</span>
+      </div>
+      <div v-if="files.length === 0" class="ft-empty">{{ t('files.empty') }}</div>
+      <div v-for="f in files" :key="f.path" class="ft-row">
+        <span class="col-name" @click="openFile(f)">
+          <span class="fi-icon" :class="{ dir: f.type==='dir' }">{{ getFileIcon(f) }}</span>
+          <span class="fi-name" :class="{ dir: f.type==='dir' }">{{ f.name }}</span>
+        </span>
+        <span class="col-size">{{ f.type === 'dir' ? '—' : formatSize(f.size) }}</span>
+        <span class="col-perm"><code class="perm">{{ formatPerms(f.mode) }}</code></span>
+        <span class="col-date">{{ formatDate(f.modified) }}</span>
+        <span class="col-act">
+          <button class="icon-btn" :title="t('files.download')" :disabled="f.type==='dir'" @click="downloadFile(f)">↓</button>
+          <button class="icon-btn" :title="t('files.permissions')" @click="openChmod(f)">◐</button>
+          <button class="icon-btn" :title="t('files.rename')" @click="openRename(f)">✎</button>
+          <button class="icon-btn danger" :title="t('common.delete')" @click="deleteItem(f)">×</button>
+        </span>
+      </div>
+    </div>
+
+    <!-- Edit modal -->
+    <div v-if="showEditor" class="overlay" @click.self="showEditor = false">
+      <div class="aura-card modal modal-xl">
+        <div class="modal-head">
+          <div><span class="kicker">{{ t('common.edit') }}</span><h3 class="modal-title">{{ editingFile.name }}</h3></div>
+          <button class="icon-btn" @click="showEditor = false">×</button>
         </div>
-
-        <div v-if="files.length === 0" class="ft-empty">Dizin boş</div>
-
-        <div v-for="f in files" :key="f.path" class="ft-row">
-          <span class="col-name">
-            <span class="fi-icon" @click="openFile(f)">{{ getFileIcon(f) }}</span>
-            <span class="fi-name" @click="openFile(f)">{{ f.name }}</span>
-          </span>
-          <span class="col-size">{{ f.type === 'dir' ? '-' : formatSize(f.size) }}</span>
-          <span class="col-perm">
-            <code class="perm-code">{{ formatPerms(f.mode) }}</code>
-          </span>
-          <span class="col-date">{{ formatDate(f.modified) }}</span>
-          <span class="col-act">
-            <button title="İndir" @click="downloadFile(f)" :disabled="f.type==='dir'">⬇</button>
-            <button title="İzinler" @click="openChmod(f)">🔐</button>
-            <button title="Ad Değiştir" @click="openRename(f)">✏️</button>
-            <button title="Sil" @click="deleteItem(f)">🗑️</button>
-          </span>
-        </div>
+        <div class="modal-body"><textarea v-model="editingFile.content" class="code-editor" rows="22" spellcheck="false"></textarea></div>
+        <div class="modal-foot"><button class="aura-btn aura-btn-ghost" @click="showEditor = false">{{ t('common.cancel') }}</button><button class="aura-btn aura-btn-primary" @click="saveFile">{{ t('common.save') }}</button></div>
       </div>
     </div>
 
-    <!-- Edit Modal -->
-    <div v-if="showEditor" class="modal-overlay" @click.self="showEditor=false">
-      <div class="modal modal-xl">
-        <div class="modal-header"><h3>✏️ {{ editingFile.name }}</h3><button class="modal-close" @click="showEditor=false">✕</button></div>
-        <div class="modal-body"><textarea v-model="editingFile.content" class="code-editor" rows="24" spellcheck="false"></textarea></div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showEditor=false">İptal</button><button class="btn-primary" @click="saveFile">💾 Kaydet</button></div>
-      </div>
-    </div>
-
-    <!-- Chmod Modal -->
-    <div v-if="showChmod && chmodFile" class="modal-overlay" @click.self="showChmod=false">
-      <div class="modal modal-sm">
-        <div class="modal-header"><h3>🔐 İzinler: {{ chmodFile.name }}</h3><button class="modal-close" @click="showChmod=false">✕</button></div>
+    <!-- Chmod modal -->
+    <div v-if="showChmod && chmodFile" class="overlay" @click.self="showChmod = false">
+      <div class="aura-card modal modal-sm">
+        <div class="modal-head"><div><span class="kicker">{{ t('files.permissions') }}</span><h3 class="modal-title">{{ chmodFile.name }}</h3></div><button class="icon-btn" @click="showChmod = false">×</button></div>
         <div class="modal-body">
-          <p style="font-size:13px;color:#888;margin-bottom:12px">Sekizlik (octal) formatta girin: 0755, 0644, 0600 gibi</p>
-          <input v-model="chmodMode" class="fm-input" placeholder="0755" />
-          <div style="margin-top:8px;font-size:13px;color:#666">Mevcut: <code>{{ formatPerms(chmodFile.mode) }}</code></div>
+          <p class="hint">{{ t('files.octalHint') }}</p>
+          <input v-model="chmodMode" class="aura-input" placeholder="0755" />
+          <div class="hint" style="margin-top:8px">{{ t('files.current') }}: <code class="perm">{{ formatPerms(chmodFile.mode) }}</code></div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showChmod=false">İptal</button><button class="btn-primary" @click="doChmod">Uygula</button></div>
+        <div class="modal-foot"><button class="aura-btn aura-btn-ghost" @click="showChmod = false">{{ t('common.cancel') }}</button><button class="aura-btn aura-btn-primary" @click="doChmod">{{ t('common.confirm') }}</button></div>
       </div>
     </div>
 
-    <!-- Rename Modal -->
-    <div v-if="showRename && renameFile" class="modal-overlay" @click.self="showRename=false">
-      <div class="modal modal-sm">
-        <div class="modal-header"><h3>✏️ Yeniden Adlandır</h3><button class="modal-close" @click="showRename=false">✕</button></div>
-        <div class="modal-body"><input v-model="renameName" class="fm-input" @keyup.enter="doRename" autofocus /></div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showRename=false">İptal</button><button class="btn-primary" @click="doRename">Kaydet</button></div>
+    <!-- Rename modal -->
+    <div v-if="showRename && renameFile" class="overlay" @click.self="showRename = false">
+      <div class="aura-card modal modal-sm">
+        <div class="modal-head"><div><span class="kicker">{{ t('files.rename') }}</span><h3 class="modal-title">{{ renameFile.name }}</h3></div><button class="icon-btn" @click="showRename = false">×</button></div>
+        <div class="modal-body"><input v-model="renameName" class="aura-input" @keyup.enter="doRename" autofocus /></div>
+        <div class="modal-foot"><button class="aura-btn aura-btn-ghost" @click="showRename = false">{{ t('common.cancel') }}</button><button class="aura-btn aura-btn-primary" @click="doRename">{{ t('common.save') }}</button></div>
       </div>
     </div>
 
-    <!-- New File Modal -->
-    <div v-if="showNewFile" class="modal-overlay" @click.self="showNewFile=false">
-      <div class="modal modal-sm">
-        <div class="modal-header"><h3>📄 Yeni Dosya</h3><button class="modal-close" @click="showNewFile=false">✕</button></div>
-        <div class="modal-body"><input v-model="newFileName" class="fm-input" placeholder="dosya.txt" @keyup.enter="createFile" autofocus /></div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showNewFile=false">İptal</button><button class="btn-primary" @click="createFile">Oluştur</button></div>
+    <!-- New file modal -->
+    <div v-if="showNewFile" class="overlay" @click.self="showNewFile = false">
+      <div class="aura-card modal modal-sm">
+        <div class="modal-head"><div><span class="kicker">{{ t('files.newFile') }}</span><h3 class="modal-title">{{ t('files.fileCreate') }}</h3></div><button class="icon-btn" @click="showNewFile = false">×</button></div>
+        <div class="modal-body"><input v-model="newFileName" class="aura-input" :placeholder="t('files.placeholderFile')" @keyup.enter="createFile" autofocus /></div>
+        <div class="modal-foot"><button class="aura-btn aura-btn-ghost" @click="showNewFile = false">{{ t('common.cancel') }}</button><button class="aura-btn aura-btn-primary" @click="createFile">{{ t('common.create') }}</button></div>
       </div>
     </div>
 
-    <!-- New Dir Modal -->
-    <div v-if="showNewDir" class="modal-overlay" @click.self="showNewDir=false">
-      <div class="modal modal-sm">
-        <div class="modal-header"><h3>📂 Yeni Klasör</h3><button class="modal-close" @click="showNewDir=false">✕</button></div>
-        <div class="modal-body"><input v-model="newDirName" class="fm-input" placeholder="yeni-klasor" @keyup.enter="createDir" autofocus /></div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showNewDir=false">İptal</button><button class="btn-primary" @click="createDir">Oluştur</button></div>
+    <!-- New dir modal -->
+    <div v-if="showNewDir" class="overlay" @click.self="showNewDir = false">
+      <div class="aura-card modal modal-sm">
+        <div class="modal-head"><div><span class="kicker">{{ t('files.newFolder') }}</span><h3 class="modal-title">{{ t('files.folderCreate') }}</h3></div><button class="icon-btn" @click="showNewDir = false">×</button></div>
+        <div class="modal-body"><input v-model="newDirName" class="aura-input" :placeholder="t('files.placeholderFolder')" @keyup.enter="createDir" autofocus /></div>
+        <div class="modal-foot"><button class="aura-btn aura-btn-ghost" @click="showNewDir = false">{{ t('common.cancel') }}</button><button class="aura-btn aura-btn-primary" @click="createDir">{{ t('common.create') }}</button></div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.fm { width: 100%; }
-.fm-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.fm-header h2 { margin: 0; font-size: 20px; }
-.fm-actions { display: flex; gap: 6px; }
-.btn { padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; }
-.fm-btn { background: white; border: 1px solid #ddd; color: #333; }
-.fm-btn:hover { background: #f5f5f5; }
+.fm-page { display: flex; flex-direction: column; gap: 14px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.page-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--aura-text); }
+.page-head p { margin-top: 4px; font-size: 13px; color: var(--aura-text-muted); }
+.head-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.icon-only { padding: 10px 12px; }
 
-.breadcrumb { margin-bottom: 16px; }
-.bc-path { font-size: 12px; color: #888; display: block; font-family: monospace; margin-bottom: 6px; }
-.bc-link { color: #0f3460; text-decoration: none; font-size: 14px; }
+.kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--aura-text-faint); }
+
+.breadcrumb { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+.bc-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--aura-text-muted); word-break: break-all; }
+.bc-links { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bc-link { font-size: 13px; font-weight: 550; color: var(--aura-accent); text-decoration: none; }
 .bc-link:hover { text-decoration: underline; }
+.sep { color: var(--aura-text-faint); font-size: 12px; }
 
-.fm-error { background: #ffe0e0; color: #c0392b; padding: 10px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
-.fm-loading { text-align: center; padding: 40px; color: #888; }
+.alert { padding: 10px 14px; border-radius: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 13px; }
+[data-theme="dark"] .alert { background: #451a1a; border-color: #7f1d1d; color: #fecaca; }
+.state { text-align: center; padding: 40px; font-size: 13px; }
+.state.muted { color: var(--aura-text-muted); }
 
-.file-table-wrap { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); border: 1px solid #f0f0f0; overflow: hidden; }
-.file-table { width: 100%; }
-.ft-header { display: grid; grid-template-columns: 1fr 90px 110px 140px 120px; padding: 12px 16px; background: #fafafa; border-bottom: 2px solid #e5e5e5; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; }
-.ft-row { display: grid; grid-template-columns: 1fr 90px 110px 140px 120px; padding: 10px 16px; border-bottom: 1px solid #f5f5f5; font-size: 13px; align-items: center; transition: background 0.1s; }
-.ft-row:hover { background: #f8f9fa; }
-.ft-empty { text-align: center; padding: 40px; color: #888; }
+.table-wrap { overflow: hidden; padding: 0; }
+.ft-header { display: grid; grid-template-columns: 1fr 90px 110px 150px 140px; gap: 8px; padding: 10px 14px; background: var(--aura-bg-subtle); border-bottom: 1px solid var(--aura-border); }
+.ft-row { display: grid; grid-template-columns: 1fr 90px 110px 150px 140px; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--aura-border); align-items: center; font-size: 13px; }
+.ft-row:last-child { border-bottom: none; }
+.ft-row:hover { background: var(--aura-surface-hover); }
+.ft-empty { text-align: center; padding: 32px; color: var(--aura-text-muted); font-size: 13px; }
 
-.col-name { display: flex; align-items: center; gap: 10px; overflow: hidden; }
-.fi-icon { font-size: 18px; cursor: pointer; flex-shrink: 0; }
-.fi-name { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
-.fi-name:hover { color: #0f3460; text-decoration: underline; }
+.col-name { display: flex; align-items: center; gap: 10px; overflow: hidden; cursor: pointer; min-width: 0; }
+.fi-icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); font-size: 12px; color: var(--aura-text-muted); flex-shrink: 0; }
+.fi-icon.dir { background: var(--aura-accent-soft); border-color: transparent; color: var(--aura-accent); }
+.fi-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--aura-text); }
+.fi-name.dir { font-weight: 600; }
+.fi-name:hover { color: var(--aura-accent); }
 
-.col-size { color: #666; font-family: monospace; font-size: 12px; }
-.col-perm { font-family: monospace; }
-.perm-code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #555; }
-.col-date { color: #888; font-size: 12px; }
-.col-act { display: flex; gap: 4px; }
-.col-act button { background: none; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 6px; font-size: 13px; cursor: pointer; }
-.col-act button:hover { background: #f0f0f0; }
-.col-act button:disabled { opacity: 0.3; cursor:not-allowed; }
+.col-size { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--aura-text-muted); }
+.col-perm .perm { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 3px 8px; border-radius: 6px; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); color: var(--aura-text-muted); }
+.col-date { font-size: 12px; color: var(--aura-text-muted); }
+.col-act { display: flex; gap: 4px; justify-content: flex-end; }
 
-.modal-overlay { position: fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000; }
-.modal { background:white; border-radius:12px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); }
-.modal-sm { max-width:420px; }
-.modal-xl { max-width:900px; }
-.modal-header { display:flex; justify-content:space-between; align-items:center; padding:18px 24px; border-bottom:1px solid #f0f0f0; }
-.modal-header h3 { margin:0; }
-.modal-close { background:none; border:none; font-size:20px; cursor:pointer; color:#888; }
-.modal-body { padding:24px; }
-.modal-footer { display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid #f0f0f0; }
-.btn-cancel { padding:10px 20px; background:#f0f0f0; border:none; border-radius:8px; font-size:14px; cursor:pointer; }
-.btn-primary { padding:10px 20px; background:#0f3460; color:white; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; }
-.btn-primary:hover { background:#1a4a7a; }
+.icon-btn { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--aura-border); background: var(--aura-surface); color: var(--aura-text-muted); cursor: pointer; font-size: 12px; }
+.icon-btn:hover { background: var(--aura-surface-hover); color: var(--aura-text); border-color: var(--aura-border-strong); }
+.icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.icon-btn.danger:hover { color: var(--aura-danger); border-color: color-mix(in srgb, var(--aura-danger) 20%, var(--aura-border)); }
 
-.fm-input { width:100%; padding:10px 12px; border:2px solid #e0e0e0; border-radius:8px; font-size:14px; }
-.fm-input:focus { outline:none; border-color:#0f3460; }
+.overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.modal { width: 100%; overflow: hidden; }
+.modal-sm { max-width: 420px; }
+.modal-xl { max-width: 880px; }
+.modal-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 18px; border-bottom: 1px solid var(--aura-border); }
+.modal-title { font-size: 14px; font-weight: 700; color: var(--aura-text); margin-top: 2px; word-break: break-all; }
+.modal-body { padding: 18px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--aura-border); }
 
-.code-editor { width:100%; font-family:'Consolas','Monaco',monospace; font-size:13px; line-height:1.5; padding:16px; border:2px solid #e0e0e0; border-radius:8px; background:#1a1a2e; color:#e0e0e0; resize:vertical; }
-.code-editor:focus { outline:none; border-color:#0f3460; }
+.aura-input { width: 100%; padding: 10px 12px; border: 1px solid var(--aura-border); border-radius: 10px; font-size: 14px; background: var(--aura-surface); color: var(--aura-text); }
+.aura-input:focus { outline: none; border-color: var(--aura-accent); box-shadow: 0 0 0 3px var(--aura-accent-ring); }
+.aura-input:placeholder { color: var(--aura-text-faint); }
+.hint { font-size: 12px; color: var(--aura-text-muted); line-height: 1.5; }
+
+.code-editor { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.55; padding: 14px; border: 1px solid var(--aura-border); border-radius: 10px; background: #0f172a; color: #e2e8f0; resize: vertical; }
+.code-editor:focus { outline: none; border-color: var(--aura-accent); box-shadow: 0 0 0 3px var(--aura-accent-ring); }
+
+@media (max-width: 860px) {
+  .ft-header, .ft-row { grid-template-columns: 1fr 80px 90px; }
+  .ft-header span:nth-child(4), .ft-row span:nth-child(4) { display: none; }
+  .ft-header span:nth-child(2), .ft-row span:nth-child(2) { display: none; }
+}
 </style>

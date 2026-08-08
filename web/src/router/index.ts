@@ -109,15 +109,18 @@ const router = createRouter({
           path: 'admin/users',
           name: 'AdminUsers',
           component: () => import('@/views/admin/Users.vue'),
+          meta: { roles: ['admin'] },
         },
         {
           path: 'admin/settings',
           name: 'AdminSettings',
           component: () => import('@/views/admin/Settings.vue'),
+          meta: { roles: ['admin'] },
         },
         {
           path: 'admin/audit',
           name: 'AdminAudit',
+          meta: { roles: ['admin'] },
           component: () => import('@/views/admin/AuditLogs.vue'),
         },
       ],
@@ -129,17 +132,34 @@ const router = createRouter({
   ],
 })
 
-// Navigation guard
+// Navigation guard — auth + RBAC
 router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore()
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
-  } else if (to.meta.guest && authStore.isAuthenticated) {
-    next({ name: 'Dashboard' })
-  } else {
-    next()
+    return
   }
+  if (to.meta.guest && authStore.isAuthenticated) {
+    next({ name: 'Dashboard' })
+    return
+  }
+  // RBAC: admin routes
+  const roles = (to.meta as any)?.roles as string[] | undefined
+  if (roles && roles.length > 0) {
+    const userRole = authStore.user?.role
+    // user henüz yüklenmediyse, backend 403'e güven ama UX için login'e yönlendirme
+    if (!userRole) {
+      // fetchMe denenebilir ama senkron guard için şimdilik engelle
+      next({ name: 'Dashboard' })
+      return
+    }
+    if (!roles.includes(userRole)) {
+      next({ name: 'Dashboard' })
+      return
+    }
+  }
+  next()
 })
 
 export default router

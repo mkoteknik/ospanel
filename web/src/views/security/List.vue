@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
 
 const auth = useAuthStore()
 const loading = ref(true)
@@ -16,69 +19,69 @@ const securityItems = computed(() => {
 
   return [
     {
-      icon: '🔐', title: 'Fail2ban IDS',
-      desc: 'Saldırı tespit ve engelleme. SSH/HTTP brute-force saldırılarini otomatik bloklar.',
+      icon: '🔐', title: t('security.fail2banTitle'),
+      desc: t('security.fail2banDesc'),
       installed: fail2ban?.installed || false,
       active: fail2ban?.active || false,
       link: '/services',
-      action: fail2ban?.installed ? (fail2ban.active ? 'Aktif' : 'Pasif') : 'Kurulu Değil',
+      action: fail2ban?.installed ? (fail2ban.active ? t('security.active') : t('security.inactive')) : t('security.notInstalled'),
     },
     {
-      icon: '🔥', title: 'Güvenlik Duvarı (UFW)',
-      desc: 'Port bazlı erişim kontrolü. Sadece gerekli portlar açık.',
+      icon: '🔥', title: t('security.firewallTitle'),
+      desc: t('security.firewallDesc'),
       installed: true,
       active: firewallActive.value,
       link: '/services',
-      action: firewallActive.value ? 'Aktif' : 'Pasif',
+      action: firewallActive.value ? t('security.active') : t('security.inactive'),
     },
     {
-      icon: '🔑', title: 'İki Faktörlü (2FA)',
-      desc: 'Google Authenticator ile ek güvenlik katmani. Panel girişi icin TOTP kodu zorunlulugu.',
+      icon: '🔑', title: t('security.totpTitle'),
+      desc: t('security.totpDesc'),
       installed: true,
       active: auth.user?.totp_enabled || false,
       link: '/security',
-      action: auth.user?.totp_enabled ? 'Aktif' : 'Kurulmadi',
+      action: auth.user?.totp_enabled ? t('security.active') : t('security.notSetup'),
       isPersonal: true,
     },
     {
-      icon: '🔒', title: 'SSL Sertifikaları',
-      desc: 'Domain SSL durumu. Let\'s Encrypt otomatik yenileme. TLS 1.2+ desteği.',
+      icon: '🔒', title: t('security.sslTitle'),
+      desc: t('security.sslDesc'),
       installed: sslCount.value.total > 0,
       active: sslCount.value.active > 0,
       link: '/ssl',
-      action: `${sslCount.value.active} aktif, ${sslCount.value.expiring} yakinda bitecek`,
+      action: `${sslCount.value.active} ${t('security.active').toLowerCase()}, ${sslCount.value.expiring} yakında bitecek`,
     },
     {
-      icon: '📋', title: 'Denetim Kayıtları',
-      desc: 'Tüm panel işlemlerinin kaydı. Kim, ne zaman, ne yaptı?',
+      icon: '📋', title: t('security.auditTitle'),
+      desc: t('security.auditDesc'),
       installed: true,
       active: true,
       link: '/admin/audit',
       action: `Son 100 işlem kaydediliyor`,
     },
     {
-      icon: '⏱️', title: 'Rate Limiting',
-      desc: 'IP bazlı istek sinirlama. Saniyede 100 istek, burst 200. DDoS korumasi.',
+      icon: '⏱️', title: t('security.rateLimitTitle'),
+      desc: t('security.rateLimitDesc'),
       installed: true,
       active: true,
       link: '/services',
       action: '100 istek/sn | Burst 200',
     },
     {
-      icon: '📧', title: 'SpamAssassin',
-      desc: 'E-posta spam filtreleme. Gelen mailleri otomatik analiz eder ve sınıflandırır.',
+      icon: '📧', title: t('security.spamTitle'),
+      desc: t('security.spamDesc'),
       installed: services.value.find((s: any) => s.name === 'spamassassin')?.installed || false,
       active: services.value.find((s: any) => s.name === 'spamassassin')?.active || false,
       link: '/services',
-      action: services.value.find((s: any) => s.name === 'spamassassin')?.installed ? 'Aktif' : 'Kurulu Değil',
+      action: services.value.find((s: any) => s.name === 'spamassassin')?.installed ? t('security.active') : t('security.notInstalled'),
     },
     {
-      icon: '📊', title: 'Redis Güvenliği',
-      desc: 'Redis sadece localhost\'ta dinler. Password korumali. maxmemory 256MB LRU.',
+      icon: '📊', title: t('security.redisSecTitle'),
+      desc: t('security.redisSecDesc'),
       installed: redis?.installed || false,
       active: redis?.active || false,
       link: '/cache',
-      action: redis?.active ? '127.0.0.1:6379' : 'Pasif',
+      action: redis?.active ? '127.0.0.1:6379' : t('security.inactive'),
     },
   ]
 })
@@ -112,15 +115,15 @@ onMounted(loadData)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>Güvenlik Paneli</h2>
-        <p>Sistem güvenlik durumu ve aktif korumalar.</p>
+        <h2>{{ t('security.title') }}</h2>
+        <p>{{ t('security.subtitle') }}</p>
       </div>
-      <button class="btn-refresh" @click="loadData">🔄 Yenile</button>
+      <button class="btn-refresh" @click="loadData">🔄 {{ t('security.refresh') }}</button>
     </div>
 
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <p>Güvenlik durumu kontrol ediliyor...</p>
+      <p>{{ t('security.checking') }}</p>
     </div>
 
     <div v-else class="security-grid">
@@ -134,7 +137,7 @@ onMounted(loadData)
           <span class="sec-icon">{{ item.icon }}</span>
           <div class="sec-head">
             <span class="sec-title">{{ item.title }}</span>
-            <span v-if="item.isPersonal" class="sec-personal">Kişisel</span>
+            <span v-if="item.isPersonal" class="sec-personal">{{ t('security.personal') }}</span>
           </div>
           <span
             class="sec-badge"
@@ -148,7 +151,7 @@ onMounted(loadData)
           </span>
         </div>
         <p class="sec-desc">{{ item.desc }}</p>
-        <router-link v-if="item.link" :to="item.link" class="sec-link">Yönet →</router-link>
+        <router-link v-if="item.link" :to="item.link" class="sec-link">{{ t('security.manage') }}</router-link>
       </div>
     </div>
   </div>

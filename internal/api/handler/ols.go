@@ -81,30 +81,29 @@ func (h *OLSHandler) GetOLSAuthURL(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// LoginInfo OLS login bilgilerini dondurur (otomatik giris icin direct_url)
+// LoginInfo OLS login bilgilerini dondurur (sifre ASLA aciga cikmaz)
 func (h *OLSHandler) LoginInfo(w http.ResponseWriter, r *http.Request) {
-	directURL := ""
-	if len(h.password) > 2 {
-		// http://admin:pass@host:7080 formatinda otomatik giris URL'i
-		host := strings.TrimPrefix(strings.TrimPrefix(h.adminURL, "http://"), "https://")
-		directURL = "http://" + h.username + ":" + h.password + "@" + host
-	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ols_admin_url": h.adminURL,
 		"username":      h.username,
 		"has_password":  h.password != "",
-		"direct_url":    directURL,
 		"proxy_url":     "/api/v1/ols/proxy",
+		// NOT: direct_url bilerek dondurulmuyor - sifreyi URL'de aciga cikarirdi
 	})
 }
 
-// ChangePassword OLS admin sifresini degistirir
+// ChangePassword OLS admin sifresini degistirir (stdin ile guvenli)
 func (h *OLSHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NewPassword string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.NewPassword == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Yeni sifre gerekli"})
+		return
+	}
+
+	if len(req.NewPassword) < 8 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Sifre en az 8 karakter olmali"})
 		return
 	}
 
@@ -115,10 +114,11 @@ func (h *OLSHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// OLS admin sifresini degistir
+	// OLS admin sifresini stdin ile degistir (ps'te gorunmez)
 	adminScript := "/usr/local/lsws/admin/misc/admpass.sh"
 	if _, err := os.Stat(adminScript); err == nil {
-		cmd := exec.Command("bash", adminScript, req.NewPassword)
+		cmd := exec.Command("bash", adminScript)
+		cmd.Stdin = strings.NewReader("admin\n" + req.NewPassword + "\n" + req.NewPassword + "\n")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "OLS sifre degistirilemedi: " + string(out),

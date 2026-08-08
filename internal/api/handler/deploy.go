@@ -59,11 +59,6 @@ var appTemplates = []AppTemplate{
 		Image: "mysql:8", Ports: "3307:3306",
 		Env: "MYSQL_ROOT_PASSWORD=changeme\nMYSQL_DATABASE=mydb\nMYSQL_USER=admin\nMYSQL_PASSWORD=changeme",
 	},
-	{ID: "nginx", Name: "Nginx", Icon: "🟢", Category: "Web",
-		Description: "Reverse proxy ve static file server",
-		Image: "nginx:alpine", Ports: "8080:80", Env: "",
-		Volumes: "./html:/usr/share/nginx/html",
-	},
 	{ID: "phpmyadmin", Name: "phpMyAdmin", Icon: "🗄️", Category: "Tool",
 		Description: "Web tabanlı MySQL/MariaDB yönetim arayüzü",
 		Image: "phpmyadmin:latest", Ports: "8081:80",
@@ -161,6 +156,12 @@ func (h *DeployHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 	envs := parseEnvVars(template.Env)
 	for k, v := range req.CustomEnv {
 		envs[k] = v
+	}
+	// Zayif sabit sifreleri rastgele ile degistir (changeme, secret vb)
+	for k, v := range envs {
+		if v == "changeme" || v == "secret" || strings.Contains(k, "PASSWORD") && (v == "" || v == "changeme" || v == "secret") {
+			envs[k] = generateRandomPass(20)
+		}
 	}
 	for k, v := range envs {
 		args = append(args, "-e", fmt.Sprintf("%s=%s", k, v))

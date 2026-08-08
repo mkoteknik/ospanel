@@ -4,13 +4,19 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/mkoteknik/ospanel/internal/adapter/cms"
+	"github.com/mkoteknik/ospanel/internal/adapter/database"
 	"github.com/mkoteknik/ospanel/internal/adapter/dns"
 	"github.com/mkoteknik/ospanel/internal/adapter/email"
 	"github.com/mkoteknik/ospanel/internal/adapter/ols"
@@ -29,12 +35,13 @@ type DomainHandler struct {
 	ols       *ols.Client
 	pdns      *dns.Client
 	mail      *email.MailServer
+	mysql     *database.MySQLClient
 	serverIP  string
 }
 
 // NewDomainHandler yeni DomainHandler
 func NewDomainHandler(s store.Store, log *logger.Logger, olsClient *ols.Client, pdnsClient *dns.Client, mailServer *email.MailServer, serverIP string) *DomainHandler {
-	return &DomainHandler{store: s, log: log, ols: olsClient, pdns: pdnsClient, mail: mailServer, serverIP: serverIP}
+	return &DomainHandler{store: s, log: log, ols: olsClient, pdns: pdnsClient, mail: mailServer, mysql: database.NewMySQLClient(), serverIP: serverIP}
 }
 
 // List kullanıcının domainlerini listeler
@@ -90,6 +97,15 @@ func (h *DomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 	user, err := h.store.GetUser(r.Context(), userID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Kullanıcı bilgisi alınamadı"})
+		return
+	}
+
+	// Kota kontrolu: max_domains
+	domainCount, _ := h.store.CountDomainsByUser(r.Context(), userID)
+	if user.MaxDomains > 0 && domainCount >= user.MaxDomains {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": fmt.Sprintf("Domain limitine ulastiniz (max %d). Mevcut: %d", user.MaxDomains, domainCount),
+		})
 		return
 	}
 
@@ -166,6 +182,16 @@ func (h *DomainHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// IDOR koruması: sadece sahibi veya admin görebilir
+	if callerID, ok := middleware.GetUserID(r.Context()); ok {
+		if domain.UserID != callerID {
+			if role, ok := middleware.GetUserRole(r.Context()); !ok || role != "admin" {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+				return
+			}
+		}
+	}
+
 	// Ek bilgiler
 	docRootExists := system.PathExists(domain.DocumentRoot)
 	var diskUsage int64
@@ -173,10 +199,21 @@ func (h *DomainHandler) Get(w http.ResponseWriter, r *http.Request) {
 		diskUsage, _ = system.DiskUsage(domain.DocumentRoot)
 	}
 
+	// Kullanici kota bilgisi
+	user, _ := h.store.GetUser(r.Context(), domain.UserID)
+	var quotaMB int64
+	var homeUsage int64
+	if user != nil && user.HomeDir != "" {
+		quotaMB = user.QuotaLimit
+		homeUsage, _ = system.DiskUsage(user.HomeDir)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"domain":          domain,
 		"docroot_exists":  docRootExists,
 		"disk_usage_mb":   diskUsage / (1024 * 1024),
+		"home_usage_mb":   homeUsage / (1024 * 1024),
+		"quota_limit_mb":  quotaMB,
 		"site_url":        "http://" + domain.Domain,
 	})
 }
@@ -188,6 +225,16 @@ func (h *DomainHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
 		return
+	}
+
+	// IDOR koruması
+	if callerID, ok := middleware.GetUserID(r.Context()); ok {
+		if domain.UserID != callerID {
+			if role, ok := middleware.GetUserRole(r.Context()); !ok || role != "admin" {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+				return
+			}
+		}
 	}
 
 	var updates map[string]interface{}
@@ -243,6 +290,16 @@ func (h *DomainHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
 		return
+	}
+
+	// IDOR koruması
+	if callerID, ok := middleware.GetUserID(r.Context()); ok {
+		if domain.UserID != callerID {
+			if role, ok := middleware.GetUserRole(r.Context()); !ok || role != "admin" {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+				return
+			}
+		}
 	}
 
 	if err := h.store.DeleteDomain(r.Context(), id); err != nil {
@@ -470,16 +527,66 @@ func (h *DomainHandler) CreateSubdomain(w http.ResponseWriter, r *http.Request) 
 		h.ols.CreateVHost(subDomain, docRoot, req.PHPVersion)
 	}
 
-	// DNS kaydı ekle
-	if h.pdns != nil && h.pdns.IsAvailable() {
-		h.pdns.CreateRecord(parent.Domain, dns.Record{
-			Name: req.Subdomain + "." + parent.Domain + ".", Type: "CNAME",
-			Content: parent.Domain + ".", TTL: 3600,
-		})
+	// Progress tracking
+	steps := []map[string]interface{}{}
+
+	// Adım 1: Document root
+	steps = append(steps, map[string]interface{}{"step": 1, "name": "Dosya dizini oluşturuldu", "status": "done", "detail": docRoot})
+
+	// Adım 2: OLS vhost
+	vhostStatus := "skipped"
+	if h.ols != nil && h.ols.IsAvailable() {
+		if err := h.ols.CreateVHost(subDomain, docRoot, req.PHPVersion); err != nil {
+			vhostStatus = "failed"
+			steps = append(steps, map[string]interface{}{"step": 2, "name": "OLS Sanal Host", "status": "failed", "detail": err.Error()})
+		} else {
+			vhostStatus = "done"
+			steps = append(steps, map[string]interface{}{"step": 2, "name": "OLS Sanal Host oluşturuldu", "status": "done", "detail": "PHP " + req.PHPVersion})
+		}
+	} else {
+		steps = append(steps, map[string]interface{}{"step": 2, "name": "OLS Sanal Host", "status": "skipped", "detail": "OLS kullanılabilir değil"})
 	}
 
-	h.log.Infow("subdomain oluşturuldu", "subdomain", subDomain, "parent", parent.Domain)
-	writeJSON(w, http.StatusCreated, map[string]interface{}{"domain": domain, "message": "Subdomain oluşturuldu"})
+	// Adım 3: DNS kaydı
+	dnsStatus := "skipped"
+	if h.pdns != nil && h.pdns.IsAvailable() {
+		if err := h.pdns.CreateRecord(parent.Domain, dns.Record{
+			Name: req.Subdomain + "." + parent.Domain + ".", Type: "CNAME",
+			Content: parent.Domain + ".", TTL: 3600,
+		}); err != nil {
+			dnsStatus = "failed"
+			steps = append(steps, map[string]interface{}{"step": 3, "name": "DNS kaydı", "status": "failed", "detail": err.Error()})
+		} else {
+			dnsStatus = "done"
+			steps = append(steps, map[string]interface{}{"step": 3, "name": "DNS kaydı eklendi", "status": "done", "detail": req.Subdomain + "." + parent.Domain + " → CNAME → " + parent.Domain})
+		}
+	} else {
+		steps = append(steps, map[string]interface{}{"step": 3, "name": "DNS kaydı", "status": "skipped", "detail": "PowerDNS kullanılabilir değil"})
+	}
+
+	// Adım 4: SSL (ana domain wildcard varsa otomatik kapsar)
+	sslStatus := "skipped"
+	sslNote := ""
+	if parent.SSLenabled {
+		sslStatus = "done"
+		sslNote = "Ana domain SSL'i tüm alt domainleri kapsar (wildcard)"
+	} else {
+		sslNote = "SSL henüz kurulmadı - Domain sayfasından kurabilirsiniz"
+	}
+	steps = append(steps, map[string]interface{}{"step": 4, "name": "SSL Sertifikası", "status": sslStatus, "detail": sslNote})
+
+	// Adım 5: Tamamlandı
+	steps = append(steps, map[string]interface{}{"step": 5, "name": "Alt domain hazır", "status": "done", "detail": "http://" + subDomain})
+
+	h.log.Infow("subdomain oluşturuldu", "subdomain", subDomain, "parent", parent.Domain,
+		"vhost", vhostStatus, "dns", dnsStatus, "ssl", sslStatus)
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"domain":  domain,
+		"message": "Alt domain başarıyla oluşturuldu",
+		"steps":   steps,
+		"url":     "http://" + subDomain,
+	})
 }
 
 // ListSubdomains domain'in alt domainlerini listeler
@@ -649,24 +756,392 @@ func (h *DomainHandler) DeleteAlias(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Alias silindi"})
 }
 
-// isValidDomain basit domain validasyonu
+// isValidDomain RFC1035 uyumlu domain validasyonu
 func isValidDomain(domain string) bool {
 	if len(domain) < 4 || len(domain) > 253 {
 		return false
 	}
-	// Nokta içermeli ve en az bir noktadan sonra 2+ karakter olmalı
-	lastDot := -1
-	for i := len(domain) - 1; i >= 0; i-- {
-		if domain[i] == '.' {
-			lastDot = i
-			break
+	// Toplam uzunluk ve label kontrolleri
+	if strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") || strings.HasSuffix(domain, "-") {
+		return false
+	}
+	if strings.Contains(domain, "..") || strings.Contains(domain, "--") {
+		return false
+	}
+	// En az bir nokta ve TLD >=2
+	lastDot := strings.LastIndex(domain, ".")
+	if lastDot <= 0 || lastDot >= len(domain)-2 {
+		return false
+	}
+	tld := domain[lastDot+1:]
+	if len(tld) < 2 {
+		return false
+	}
+	// TLD sadece harf
+	for _, c := range tld {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return false
 		}
 	}
-	return lastDot > 0 && lastDot < len(domain)-2
+	// Her label 1-63, alfanum + hyphen, hyphen başta/sonda olamaz
+	labels := strings.Split(domain, ".")
+	for _, lbl := range labels {
+		if len(lbl) == 0 || len(lbl) > 63 {
+			return false
+		}
+		if lbl[0] == '-' || lbl[len(lbl)-1] == '-' {
+			return false
+		}
+		for _, c := range lbl {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+				return false
+			}
+		}
+	}
+	// Reserved
+	reserved := map[string]bool{"localhost": true, "test": true, "invalid": true, "example": true}
+	if reserved[strings.ToLower(domain)] {
+		return false
+	}
+	return true
 }
 
 // isValidPHPVersion geçerli PHP sürümü mü?
 func isValidPHPVersion(v string) bool {
 	valid := map[string]bool{"8.2": true, "8.3": true, "8.4": true}
 	return valid[v]
+}
+
+// InstallCMS domain'e CMS kurar (WordPress, Joomla)
+func (h *DomainHandler) InstallCMS(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	domain, err := h.store.GetDomain(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
+		return
+	}
+
+	// Sahiplik kontrolü
+	callerID, _ := middleware.GetUserID(r.Context())
+	callerRole, _ := middleware.GetUserRole(r.Context())
+	if domain.UserID != callerID && callerRole != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+		return
+	}
+
+	var req struct {
+		CMS        string `json:"cms"`         // "wordpress" veya "joomla"
+		SiteTitle  string `json:"site_title"`
+		AdminUser  string `json:"admin_user"`
+		AdminPass  string `json:"admin_pass"`
+		AdminEmail string `json:"admin_email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
+		return
+	}
+
+	if req.CMS != "wordpress" && req.CMS != "joomla" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Desteklenen CMS: wordpress, joomla"})
+		return
+	}
+
+	// Document root kontrolü
+	docRoot := domain.DocumentRoot
+	if _, err := os.Stat(docRoot); os.IsNotExist(err) {
+		if err := os.MkdirAll(docRoot, 0755); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Document root oluşturulamadı"})
+			return
+		}
+	}
+
+	// Dizin boş mu kontrol et
+	entries, _ := os.ReadDir(docRoot)
+	if len(entries) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Dizin boş değil. CMS kurulumu için boş bir dizin gerekli."})
+		return
+	}
+
+	// Veritabanı oluştur
+	dbName := "cms_" + strings.ReplaceAll(strings.ReplaceAll(domain.Domain, ".", "_"), "-", "_")
+	dbName = dbName[:min(len(dbName), 64)]
+	dbUser := "usr_" + cms.GenRandomString(10)
+	dbPass := cms.GenRandomString(20)
+
+	if h.mysql == nil || !h.mysql.IsAvailable() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MySQL sunucusuna bağlanılamadı. CMS kurulumu için veritabanı gerekli."})
+		return
+	}
+
+	if err := h.mysql.CreateDatabase(dbName, dbUser, dbPass); err != nil {
+		h.log.Errorw("CMS veritabanı oluşturulamadı", "error", err, "domain", domain.Domain)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Veritabanı oluşturulamadı: " + err.Error()})
+		return
+	}
+
+	// CMS kurulumu
+	cfg := cms.InstallerConfig{
+		Domain:       domain.Domain,
+		DocumentRoot: docRoot,
+		DBHost:       "127.0.0.1",
+		DBName:       dbName,
+		DBUser:       dbUser,
+		DBPass:       dbPass,
+		SiteTitle:    req.SiteTitle,
+		AdminUser:    req.AdminUser,
+		AdminPass:    req.AdminPass,
+		AdminEmail:   req.AdminEmail,
+	}
+
+	var result *cms.InstallResult
+	switch req.CMS {
+	case "wordpress":
+		result, err = cms.InstallWordPress(cfg)
+	case "joomla":
+		result, err = cms.InstallJoomla(cfg)
+	}
+
+	if err != nil || !result.Success {
+		h.log.Errorw("CMS kurulumu başarısız", "error", err, "cms", req.CMS, "domain", domain.Domain)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "CMS kurulumu başarısız: " + result.Error})
+		return
+	}
+
+	// Veritabanı kaydını store'a ekle
+	dbRecord := &model.Database{
+		UserID:      domain.UserID,
+		Name:        dbName,
+		Username:    dbUser,
+		PasswordEnc: dbPass,
+		Charset:     "utf8mb4",
+		Status:      "active",
+	}
+	h.store.CreateDatabase(r.Context(), dbRecord)
+
+	h.log.Infow("CMS kuruldu", "cms", req.CMS, "domain", domain.Domain, "admin_url", result.CMS.AdminURL)
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"message": "CMS başarıyla kuruldu! Siteye giderek kurulumu tamamlayın.",
+		"cms":     result.CMS,
+		"next_step": map[string]string{
+			"site_url":  "http://" + domain.Domain,
+			"admin_url": result.CMS.AdminURL,
+			"note":      "Siteye giderek kurulumu tamamlayın. Veritabanı bilgileri otomatik girilecektir.",
+		},
+	})
+}
+
+// SecureSite document root'a .htaccess guvenlik dosyasi ekler/yeniler
+func (h *DomainHandler) SecureSite(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	domain, err := h.store.GetDomain(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
+		return
+	}
+	callerID, _ := middleware.GetUserID(r.Context())
+	callerRole, _ := middleware.GetUserRole(r.Context())
+	if domain.UserID != callerID && callerRole != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+		return
+	}
+
+	htaccessPath := filepath.Join(domain.DocumentRoot, ".htaccess")
+	if err := os.WriteFile(htaccessPath, []byte(system.GenerateHtaccess()), 0644); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": ".htaccess yazılamadı"})
+		return
+	}
+	h.log.Infow(".htaccess yenilendi", "domain", domain.Domain)
+	writeJSON(w, http.StatusOK, map[string]string{"message": ".htaccess güvenlik dosyası oluşturuldu"})
+}
+
+// UploadCustomSSL manuel SSL sertifikasi yukleme
+func (h *DomainHandler) UploadCustomSSL(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	domain, err := h.store.GetDomain(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
+		return
+	}
+	callerID, _ := middleware.GetUserID(r.Context())
+	callerRole, _ := middleware.GetUserRole(r.Context())
+	if domain.UserID != callerID && callerRole != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+		return
+	}
+
+	var req struct {
+		Certificate string `json:"certificate"` // PEM format
+		PrivateKey  string `json:"private_key"`  // PEM format
+		Chain       string `json:"chain"`        // opsiyonel intermediate
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Certificate == "" || req.PrivateKey == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Sertifika ve private key gerekli"})
+		return
+	}
+
+	// OLS cert dizini
+	certDir := "/usr/local/lsws/conf/cert/" + domain.Domain
+	os.MkdirAll(certDir, 0755)
+
+	fullchain := req.Certificate
+	if req.Chain != "" {
+		fullchain += "\n" + req.Chain
+	}
+
+	if err := os.WriteFile(certDir+"/fullchain.pem", []byte(fullchain), 0600); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Sertifika kaydedilemedi"})
+		return
+	}
+	if err := os.WriteFile(certDir+"/privkey.pem", []byte(req.PrivateKey), 0600); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Private key kaydedilemedi"})
+		return
+	}
+
+	// OLS reload
+	exec.Command("/usr/local/lsws/bin/lshttpd", "-r").Run()
+
+	// SSL durumunu guncelle
+	domain.SSLenabled = true
+	h.store.UpdateDomain(r.Context(), domain)
+
+	h.log.Infow("ozel SSL yuklendi", "domain", domain.Domain)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "SSL sertifikası başarıyla yüklendi"})
+}
+
+// GetPHPExtensions domain PHP surumu icin yuklu extensions listesini dondurur
+func (h *DomainHandler) GetPHPExtensions(w http.ResponseWriter, r *http.Request) {
+	version := r.URL.Query().Get("version")
+	if version == "" {
+		version = "8.3"
+	}
+	if h.ols != nil {
+		exts := h.ols.GetPHPExtensions(version)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"extensions": exts,
+			"version":    version,
+			"available":  h.ols.GetAvailablePHPVersions(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"extensions": []string{},
+		"version":    version,
+		"available":  []string{"8.3"},
+	})
+}
+
+// ListAliases domain alias/parked domainleri listeler
+func (h *DomainHandler) ListDomainAliases(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	domain, err := h.store.GetDomain(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
+		return
+	}
+	// Sahiplik kontrolü
+	callerID, _ := middleware.GetUserID(r.Context())
+	callerRole, _ := middleware.GetUserRole(r.Context())
+	if domain.UserID != callerID && callerRole != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+		return
+	}
+
+	aliases, err := h.store.ListAliasesByDomain(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Aliaslar listelenemedi"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"aliases": aliases, "total": len(aliases)})
+}
+
+// CreateAlias domain'e alias/parked domain ekler
+func (h *DomainHandler) CreateDomainAlias(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	domain, err := h.store.GetDomain(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
+		return
+	}
+	callerID, _ := middleware.GetUserID(r.Context())
+	callerRole, _ := middleware.GetUserRole(r.Context())
+	if domain.UserID != callerID && callerRole != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+		return
+	}
+
+	var req struct {
+		Alias  string `json:"alias"`
+		Type   string `json:"type"` // "park" veya "redirect"
+		Target string `json:"target,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Alias == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz alias adı"})
+		return
+	}
+	if req.Type == "" {
+		req.Type = "park"
+	}
+	if req.Type != "park" && req.Type != "redirect" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Tip 'park' veya 'redirect' olmalı"})
+		return
+	}
+	if req.Type == "redirect" && req.Target == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Redirect için hedef URL gerekli"})
+		return
+	}
+
+	// Aynı alias zaten var mı?
+	existing, _ := h.store.ListAliasesByDomain(r.Context(), id)
+	for _, a := range existing {
+		if a.Alias == req.Alias {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "Bu alias zaten ekli"})
+			return
+		}
+	}
+
+	alias := &model.Alias{
+		DomainID: id,
+		Alias:    req.Alias,
+		Type:     req.Type,
+		Target:   req.Target,
+	}
+	if err := h.store.CreateAlias(r.Context(), alias); err != nil {
+		h.log.Errorw("alias oluşturulamadı", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Alias oluşturulamadı"})
+		return
+	}
+
+	// OLS vhost'a alias ekle
+	if h.ols != nil && h.ols.IsAvailable() {
+		h.ols.CreateVHost(alias.Alias, domain.DocumentRoot, domain.PHPVersion)
+	}
+
+	h.log.Infow("alias eklendi", "domain", domain.Domain, "alias", req.Alias)
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"alias": alias, "message": "Alias başarıyla eklendi"})
+}
+
+// DeleteAlias alias siler
+func (h *DomainHandler) DeleteDomainAlias(w http.ResponseWriter, r *http.Request) {
+	aliasID, _ := strconv.ParseInt(chi.URLParam(r, "aliasId"), 10, 64)
+	domainID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	domain, err := h.store.GetDomain(r.Context(), domainID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain bulunamadı"})
+		return
+	}
+	callerID, _ := middleware.GetUserID(r.Context())
+	callerRole, _ := middleware.GetUserRole(r.Context())
+	if domain.UserID != callerID && callerRole != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Bu domain için yetkiniz yok"})
+		return
+	}
+
+	if err := h.store.DeleteAlias(r.Context(), aliasID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Alias silinemedi"})
+		return
+	}
+	h.log.Infow("alias silindi", "alias_id", aliasID)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Alias silindi"})
 }

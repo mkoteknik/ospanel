@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"github.com/mkoteknik/ospanel/internal/pkg/crypto"
 	"fmt"
 	"os"
 	"os/exec"
@@ -280,4 +281,18 @@ func readDBConfig() map[string]string {
 		}
 	}
 	return config
+}
+
+
+// encryptFile encrypts backup file with master key if available
+func (e *Engine) encryptFile(path string) error {
+    data, err := os.ReadFile(path)
+    if err != nil { return err }
+    enc, err := crypto.Encrypt(string(data), "")
+    if err != nil || enc == "" { return nil }
+    // If encrypted (enc: prefix), write back
+    if len(enc) > 4 && enc[:4] == "enc:" {
+        return os.WriteFile(path+".enc", []byte(enc), 0600)
+    }
+    return nil
 }

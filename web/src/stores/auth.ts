@@ -20,6 +20,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!accessToken.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
+  const isReseller = computed(() => user.value?.role === 'reseller')
+  const hasRole = (roles: string[]) => !!user.value && roles.includes(user.value.role)
 
   async function login(username: string, password: string, totpCode?: string) {
     const res = await api.post('/api/v1/auth/login', {
@@ -62,6 +64,8 @@ export const useAuthStore = defineStore('auth', () => {
     refreshToken,
     isAuthenticated,
     isAdmin,
+    isReseller,
+    hasRole,
     login,
     fetchMe,
     logout,

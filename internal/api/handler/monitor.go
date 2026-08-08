@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/mkoteknik/ospanel/internal/adapter/system"
@@ -9,7 +10,26 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		// Sadece aynı origin'den gelen WS bağlantılarına izin ver
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // Same-origin request (no Origin header)
+		}
+		host := r.Host
+		if host == "" {
+			host = r.URL.Host
+		}
+		// Origin ve Host karşılaştırması
+		if strings.HasPrefix(origin, "http://"+host) || strings.HasPrefix(origin, "https://"+host) {
+			return true
+		}
+		// Development: localhost
+		if strings.Contains(host, "localhost") || strings.Contains(host, "127.0.0.1") {
+			return true
+		}
+		return false
+	},
 }
 
 // MonitorHandler sistem izleme

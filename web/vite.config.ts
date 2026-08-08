@@ -26,5 +26,18 @@ export default defineConfig({
     outDir: resolve(__dirname, '../cmd/ospanel/web-dist'),
     emptyOutDir: true,
     assetsDir: 'assets',
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('naive-ui') || id.includes('vueuc') || id.includes('css-render')) return 'naive'
+            if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router') || id.includes('axios')) return 'vendor'
+            if (id.includes('@vueuse')) return 'utils'
+            return 'vendor'
+          }
+        },
+      },
+    },
   },
 })

@@ -31,8 +31,15 @@ func NewPGClient() *PGClient {
 		return &PGClient{installed: false}
 	}
 
-	// Bağlantı dene
-	conn, err := sql.Open("postgres", "host=127.0.0.1 user=postgres password=postgres dbname=postgres sslmode=disable")
+	// Baglanti bilgilerini config dosyasindan oku, yoksa baglanma
+	dsn := "host=127.0.0.1 sslmode=disable"
+	if data, err := os.ReadFile("/etc/ospanel/pg_pass"); err == nil {
+		pass := strings.TrimSpace(string(data))
+		if pass != "" {
+			dsn = fmt.Sprintf("host=127.0.0.1 user=postgres password=%s dbname=postgres sslmode=disable", pass)
+		}
+	}
+	conn, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return &PGClient{installed: true}
 	}

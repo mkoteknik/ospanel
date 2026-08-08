@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api/client'
+
+const { t } = useI18n()
 
 interface Service {
   name: string; display: string; icon: string; category: string
@@ -12,17 +15,17 @@ const services = ref<Service[]>([])
 const loading = ref(true)
 const actionLoading = ref<Record<string, boolean>>({})
 
-const catNames: Record<string, { name: string; icon: string }> = {
-  web: { name: 'Web Sunucusu', icon: '🌐' },
-  database: { name: 'Veritabanı', icon: '🗄️' },
-  cache: { name: 'Cache', icon: '⚡' },
-  email: { name: 'E-Posta', icon: '📧' },
-  dns: { name: 'DNS', icon: '🔧' },
-  security: { name: 'Güvenlik', icon: '🛡️' },
-  container: { name: 'Konteyner', icon: '🐳' },
-}
+const catNames = computed<Record<string, { name: string; icon: string }>>(() => ({
+  web: { name: t('services.webServer'), icon: '🌐' },
+  database: { name: t('services.database'), icon: '🗄️' },
+  cache: { name: t('services.cache'), icon: '⚡' },
+  email: { name: t('services.email'), icon: '📧' },
+  dns: { name: t('services.dns'), icon: '🔧' },
+  security: { name: t('services.security'), icon: '🛡️' },
+  container: { name: t('services.container'), icon: '🐳' },
+}))
 
-const categories = Object.keys(catNames)
+const categories = computed(() => Object.keys(catNames.value))
 
 async function loadServices() {
   loading.value = true
@@ -54,22 +57,22 @@ onMounted(loadServices)
   <div class="page">
     <div class="page-header">
       <div>
-        <h2>Sistem Servisleri</h2>
-        <p>Tek tikla kur, ac/kapa yap, boot'ta otomatik başlatmayi yonet.</p>
+        <h2>{{ t('services.title') }}</h2>
+        <p>{{ t('services.subtitle') }}</p>
       </div>
-      <button class="btn-refresh" @click="loadServices">🔄 Yenile</button>
+      <button class="btn-refresh" @click="loadServices">🔄 {{ t('services.refresh') }}</button>
     </div>
 
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <p>Servisler kontrol ediliyor...</p>
+      <p>{{ t('services.checking') }}</p>
     </div>
 
     <div v-else v-for="cat in categories" :key="cat" class="category-section">
       <div class="category-header">
         <span class="cat-icon">{{ catNames[cat].icon }}</span>
         <span class="cat-name">{{ catNames[cat].name }}</span>
-        <span class="cat-count">{{ services.filter(s => s.category === cat).filter(s => s.installed).length }}/{{ services.filter(s => s.category === cat).length }} aktif</span>
+        <span class="cat-count">{{ services.filter(s => s.category === cat).filter(s => s.installed).length }}/{{ services.filter(s => s.category === cat).length }} {{ t('services.activeCount') }}</span>
       </div>
 
       <div class="service-grid">
@@ -94,11 +97,11 @@ onMounted(loadServices)
           <!-- ORTA: Status -->
           <div class="svc-status-area">
             <template v-if="!s.installed">
-              <span class="status-tag not-installed">Kurulu Değil</span>
+              <span class="status-tag not-installed">{{ t('services.notInstalled') }}</span>
             </template>
             <template v-else>
-              <span v-if="s.active" class="status-tag running">Çalışıyor</span>
-              <span v-else class="status-tag stopped">Durdu</span>
+              <span v-if="s.active" class="status-tag running">{{ t('cache.running') }}</span>
+              <span v-else class="status-tag stopped">{{ t('cache.stopped') }}</span>
             </template>
           </div>
 
@@ -112,7 +115,7 @@ onMounted(loadServices)
                 @click="doAction(s, 'install')"
               >
                 <span v-if="isLoading(s, 'install')" class="btn-spinner"></span>
-                {{ isLoading(s, 'install') ? 'Kuruluyor...' : '📥 Kur' }}
+                {{ isLoading(s, 'install') ? t('cache.installing') : '📥 ' + t('services.install') }}
               </button>
             </template>
 

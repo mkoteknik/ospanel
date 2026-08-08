@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref } from 'vue'
 import { api } from '@/api/client'
+import { useMonitor } from '@/composables/useMonitor'
 
-const stats = ref<any>({})
+const { data: liveStats, wsOk } = useMonitor(2000)
+const stats = liveStats
 const loading = ref(true)
+const { t } = useI18n()
 const hostname = ref({ hostname: '', fqdn: '', ip: '' })
 const showHostnameEdit = ref(false)
 const newHostname = ref('')
@@ -16,132 +20,140 @@ async function setHostname() {
   try { await api.put('/api/v1/server/hostname', { hostname: newHostname.value }); showHostnameEdit.value = false; loadHostname() } catch { }
 }
 
-async function loadStats() {
-  try {
-    const res = await api.get('/api/v1/monitor/stats')
-    stats.value = res.data
-  } catch { }
-  finally { loading.value = false }
-}
-
-loadStats(); loadHostname()
-setInterval(loadStats, 10000)
+// Fallback loading state
+setTimeout(() => { loading.value = false }, 1200)
+loadHostname()
 </script>
 
 <template>
   <div class="monitor-page">
-    <h2>📈 Sistem Monitoring</h2>
-
-    <!-- Hostname -->
-    <div class="hostname-card">
-      <div class="hn-left">
-        <span class="hn-icon">🖥️</span>
-        <div>
-          <div class="hn-label">Sunucu Hostname</div>
-          <div class="hn-value">{{ hostname.hostname || '...' }}</div>
-          <div class="hn-meta">IP: {{ hostname.ip }} | FQDN: {{ hostname.fqdn || '-' }}</div>
-        </div>
+    <div class="page-head">
+      <div>
+        <h2>{{ t('auto.662044') }}</h2>
+        <p>{{ t('auto.47d9c7') }}</p>
       </div>
-      <button class="btn-sm" @click="newHostname = hostname.hostname; showHostnameEdit = true">✏️ Değiştir</button>
+      <span class="kicker live"><span class="dot"></span>{ t('monitor.livePoll') }</span>
     </div>
 
-    <!-- Hostname Edit Modal -->
-    <div v-if="showHostnameEdit" class="modal-overlay" @click.self="showHostnameEdit=false">
-      <div class="modal modal-sm">
-        <div class="modal-header"><h3>🖥️ Hostname Değiştir</h3><button class="modal-close" @click="showHostnameEdit=false">✕</button></div>
-        <div class="modal-body">
-          <div class="form-group"><label>Yeni Hostname</label><input v-model="newHostname" placeholder="server.site.com" @keyup.enter="setHostname" /></div>
-          <small>PTR kaydını hosting panelinizden bu hostname'e yönlendirin.</small>
+    <div class="aura-card host-card">
+      <div class="host-left">
+        <div class="host-icon">◰</div>
+        <div class="host-info">
+          <span class="kicker">Sunucu hostname</span>
+          <div class="host-value">{{ hostname.hostname || '—' }}</div>
+          <div class="host-meta">IP: {{ hostname.ip || '—' }} · FQDN: {{ hostname.fqdn || '—' }}</div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showHostnameEdit=false">İptal</button><button class="btn-primary" @click="setHostname">Kaydet</button></div>
+      </div>
+      <button class="aura-btn aura-btn-ghost sm" @click="newHostname = hostname.hostname; showHostnameEdit = true">{{ t('auto.dcecac') }}</button>
+    </div>
+
+    <div v-if="showHostnameEdit" class="overlay" @click.self="showHostnameEdit=false">
+      <div class="aura-card modal sm">
+        <div class="modal-head">
+          <div>
+            <span class="kicker">Hostname</span>
+            <h3 class="modal-title">{{ t('auto.cd6453') }}</h3>
+          </div>
+          <button class="icon-btn" @click="showHostnameEdit=false">×</button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            <span class="kicker">Yeni hostname</span>
+            <input v-model="newHostname" placeholder="server.site.com" @keyup.enter="setHostname" />
+          </label>
+          <p class="hint">{{ t('auto.2977d8') }}</p>
+        </div>
+        <div class="modal-foot">
+          <button class="aura-btn aura-btn-ghost" @click="showHostnameEdit=false">{{ t('common.cancel') }}</button>
+          <button class="aura-btn aura-btn-primary" @click="setHostname">{{ t('common.save') }}</button>
+        </div>
       </div>
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon">🖥️</div>
-        <div class="stat-body">
-          <div class="stat-value">{{ stats.cpu?.cores || '-' }}</div>
-          <div class="stat-label">CPU Çekirdek</div>
-        </div>
+      <div class="aura-card stat">
+        <span class="kicker">{{ t('auto.d8c117') }}</span>
+        <div class="stat-value">{{ stats.cpu?.cores ?? '—' }}</div>
+        <span class="kicker subtle">{{ t('dashboard.cpu') }}</span>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">🧠</div>
-        <div class="stat-body">
-          <div class="stat-value">{{ stats.goroutines || '-' }}</div>
-          <div class="stat-label">Goroutines</div>
-        </div>
+      <div class="aura-card stat">
+        <span class="kicker">Goroutines</span>
+        <div class="stat-value">{{ stats.goroutines ?? '—' }}</div>
+        <span class="kicker subtle">{{ t('common.active') }}</span>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">⚙️</div>
-        <div class="stat-body">
-          <div class="stat-value">{{ stats.go_version || '-' }}</div>
-          <div class="stat-label">Go Versiyon</div>
-        </div>
+      <div class="aura-card stat">
+        <span class="kicker">Go Versiyon</span>
+        <div class="stat-value mono">{{ stats.go_version || '—' }}</div>
+        <span class="kicker subtle">Runtime</span>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">💻</div>
-        <div class="stat-body">
-          <div class="stat-value">{{ stats.os?.toUpperCase() || '-' }}</div>
-          <div class="stat-label">İşletim Sistemi</div>
-        </div>
+      <div class="aura-card stat">
+        <span class="kicker">{{ t('auto.61f6e7') }}</span>
+        <div class="stat-value mono">{{ stats.os ? stats.os.toUpperCase() : '—' }}</div>
+        <span class="kicker subtle">{{ stats.arch || '—' }}</span>
       </div>
     </div>
 
-    <div class="info-card">
-      <h3>Sistem Bilgisi</h3>
-      <table class="info-table">
-        <tr><td>İşletim Sistemi</td><td>{{ stats.os }} / {{ stats.arch }}</td></tr>
-        <tr><td>Go Versiyon</td><td>{{ stats.go_version }}</td></tr>
-        <tr><td>CPU Çekirdek</td><td>{{ stats.cpu?.cores }}</td></tr>
-        <tr><td>Aktif Goroutines</td><td>{{ stats.goroutines }}</td></tr>
-      </table>
+    <div class="aura-card info-card">
+      <div class="info-head">
+        <span class="kicker">Sistem bilgisi</span>
+        <h3>{{ t('auto.1e0fb4') }}</h3>
+      </div>
+      <div class="info-rows">
+        <div class="info-row"><span class="kicker">{{ t('auto.61f6e7') }}</span><span class="info-value">{{ stats.os ? stats.os + ' / ' + stats.arch : '—' }}</span></div>
+        <div class="info-row"><span class="kicker">Go Versiyon</span><span class="info-value mono">{{ stats.go_version || '—' }}</span></div>
+        <div class="info-row"><span class="kicker">{{ t('auto.d8c117') }}</span><span class="info-value">{{ stats.cpu?.cores ?? '—' }}</span></div>
+        <div class="info-row"><span class="kicker">Aktif Goroutines</span><span class="info-value">{{ stats.goroutines ?? '—' }}</span></div>
+      </div>
     </div>
 
-    <p class="note">⚡ Linux sunucuda CPU/RAM/Disk gerçek zamanlı metrikleri aktif olacak.</p>
+    <p class="note">{{ t('auto.3bd258') }}</p>
   </div>
 </template>
 
 <style scoped>
-.monitor-page { width: 100%; }
-h2 { margin: 0 0 24px; }
+.monitor-page { display: flex; flex-direction: column; gap: 16px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.page-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--aura-text); }
+.page-head p { margin-top: 4px; font-size: 13px; color: var(--aura-text-muted); max-width: 560px; }
+.kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--aura-text-faint); }
+.kicker.subtle { color: var(--aura-text-faint); font-weight: 600; }
+.kicker.live { display: inline-flex; align-items: center; gap: 6px; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); padding: 6px 10px; border-radius: 999px; color: var(--aura-text-muted); }
+.dot { width: 6px; height: 6px; border-radius: 999px; background: var(--aura-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--aura-success) 18%, transparent); }
 
-.hostname-card { display: flex; justify-content: space-between; align-items: center; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); margin-bottom: 20px; }
-.hn-left { display: flex; align-items: center; gap: 14px; }
-.hn-icon { font-size: 28px; }
-.hn-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 2px; }
-.hn-value { font-size: 18px; font-weight: 700; color: #1a1a2e; font-family: monospace; }
-.hn-meta { font-size: 12px; color: #888; margin-top: 2px; }
-.btn-sm { padding: 8px 14px; background: white; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.btn-sm:hover { background: #f5f5f5; }
-.btn-primary { padding: 10px 20px; background: #0f3460; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
-.btn-primary:hover { background: #1a4a7a; }
+.host-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 18px; }
+.host-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.host-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--aura-bg-subtle); border: 1px solid var(--aura-border); color: var(--aura-text-muted); font-size: 18px; }
+.host-info { min-width: 0; }
+.host-value { font-size: 16px; font-weight: 700; letter-spacing: -0.015em; color: var(--aura-text); font-family: ui-monospace, monospace; }
+.host-meta { font-size: 12px; color: var(--aura-text-faint); margin-top: 2px; }
+.sm { padding: 8px 12px; font-size: 12px; }
 
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal { background: white; border-radius: 12px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-.modal-sm { max-width: 420px; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #f0f0f0; }
-.modal-header h3 { margin: 0; }
-.modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
-.modal-body { padding: 24px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-top: 1px solid #f0f0f0; }
-.btn-cancel { padding: 10px 20px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; }
-.form-group { margin-bottom: 16px; }
-.form-group label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-.form-group input { width: 100%; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; font-family: monospace; }
-.form-group input:focus { outline: none; border-color: #0f3460; }
+.overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.modal { width: 100%; overflow: hidden; }
+.modal.sm { max-width: 420px; }
+.modal-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 20px; border-bottom: 1px solid var(--aura-border); }
+.modal-title { font-size: 15px; font-weight: 700; color: var(--aura-text); margin-top: 2px; }
+.modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--aura-border); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field input { width: 100%; padding: 10px 12px; border: 1px solid var(--aura-border); border-radius: 10px; font-size: 14px; background: var(--aura-surface); color: var(--aura-text); font-family: ui-monospace, monospace; }
+.field input:focus { outline: none; border-color: var(--aura-accent); box-shadow: 0 0 0 3px var(--aura-accent-ring); }
+.hint { font-size: 12px; color: var(--aura-text-faint); }
+.icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--aura-border); background: var(--aura-surface); color: var(--aura-text-muted); cursor: pointer; }
+.icon-btn:hover { background: var(--aura-surface-hover); color: var(--aura-text); }
 
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-.stat-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; align-items: center; gap: 16px; }
-.stat-icon { font-size: 32px; }
-.stat-value { font-size: 24px; font-weight: 700; color: #1a1a2e; }
-.stat-label { font-size: 13px; color: #888; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.stat { padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+.stat-value { font-size: 22px; font-weight: 750; letter-spacing: -0.02em; color: var(--aura-text); line-height: 1.1; }
+.stat-value.mono { font-size: 14px; font-family: ui-monospace, monospace; font-weight: 600; word-break: break-all; }
 
-.info-card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 16px; }
-.info-card h3 { margin: 0 0 16px; }
-.info-table { width: 100%; }
-.info-table td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
-.info-table td:first-child { color: #888; width: 150px; }
+.info-card { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.info-head h3 { font-size: 14px; font-weight: 650; color: var(--aura-text); margin-top: 2px; }
+.info-rows { display: flex; flex-direction: column; }
+.info-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--aura-border); }
+.info-row:last-child { border-bottom: none; }
+.info-value { font-size: 13px; font-weight: 550; color: var(--aura-text); }
+.info-value.mono { font-family: ui-monospace, monospace; font-size: 12px; }
 
-.note { color: #888; font-size: 13px; text-align: center; margin-top: 20px; }
+.note { color: var(--aura-text-faint); font-size: 12px; text-align: center; }
 </style>

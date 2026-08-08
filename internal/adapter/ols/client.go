@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
+
+	"github.com/mkoteknik/ospanel/internal/pkg/atomicfile"
 )
 
 // Client OpenLiteSpeed yönetim istemcisi
@@ -56,8 +59,16 @@ func (c *Client) CreateVHost(domain, documentRoot, phpVersion string) error {
 	// 3. vhconf.xml oluştur
 	vhconfPath := filepath.Join(vhostDir, "vhconf.xml")
 	vhconf := generateVHostConfig(domain, documentRoot, phpVersion)
-	if err := os.WriteFile(vhconfPath, []byte(vhconf), 0644); err != nil {
+	if err := atomicfile.WriteFileAtomic(vhconfPath, []byte(vhconf), 0644); err != nil {
 		return fmt.Errorf("vhconf.xml yazılamadı: %w", err)
+	}
+
+	// 3b. PHP guvenlik php.ini (open_basedir, disable_functions)
+	confDir := filepath.Join(vhostDir, "conf")
+	os.MkdirAll(confDir, 0755)
+	phpIni := generatePHPSecurityConfig(documentRoot)
+	if err := os.WriteFile(filepath.Join(confDir, "php.ini"), []byte(phpIni), 0644); err != nil {
+		return fmt.Errorf("php.ini yazılamadı: %w", err)
 	}
 
 	// 4. Ana konfigürasyona vhost'u ekle
@@ -118,7 +129,7 @@ func (c *Client) SetPHPVersion(domain, phpVersion string) error {
 	new := `lsphp` + strings.ReplaceAll(phpVersion, ".", "")
 	newContent := strings.ReplaceAll(string(content), old, new)
 
-	if err := os.WriteFile(vhconfPath, []byte(newContent), 0644); err != nil {
+	if err := atomicfile.WriteFileAtomic(vhconfPath, []byte(newContent), 0644); err != nil {
 		return err
 	}
 
@@ -194,7 +205,7 @@ func (c *Client) addVHostToMainConfig(domain string) error {
 		"  "+vhostEntry+"\n    </virtualHostList>",
 		1)
 
-	return os.WriteFile(configPath, []byte(newContent), 0644)
+	return atomicfile.WriteFileAtomic(configPath, []byte(newContent), 0644)
 }
 
 // removeVHostFromMainConfig ana konfigürasyondan vhost'u kaldırır
@@ -224,10 +235,10 @@ func (c *Client) removeVHostFromMainConfig(domain string) error {
 		}
 	}
 
-	return os.WriteFile(configPath, []byte(strings.Join(newLines, "\n")), 0644)
+	return atomicfile.WriteFileAtomic(configPath, []byte(strings.Join(newLines, "\n")), 0644)
 }
 
-// generateVHostConfig vhost XML konfigürasyonu üretir
+// generateVHostConfig vhost XML konfigürasyonu üretir (PHP guvenlik ayarlariyla)
 func generateVHostConfig(domain, documentRoot, phpVersion string) string {
 	tmpl := `<?xml version="1.0" encoding="UTF-8"?>
 <virtualHostConfig>
@@ -250,6 +261,11 @@ func generateVHostConfig(domain, documentRoot, phpVersion string) string {
       <suffix>php</suffix>
       <type>lsapi</type>
       <handler>lsphp{{.PHPVer}}</handler>
+      <env>PHP_INI_SCAN_DIR=$VH_ROOT/conf</env>
+      <memSoftLimit>256M</memSoftLimit>
+      <memHardLimit>512M</memHardLimit>
+      <procSoftLimit>100</procSoftLimit>
+      <procHardLimit>200</procHardLimit>
     </scriptHandler>
   </scriptHandlerList>
 
@@ -373,6 +389,104 @@ func (c *Client) checkPort(port int) bool {
 	cmd := exec.Command("ss", "-tlnp")
 	out, _ := cmd.CombinedOutput()
 	return strings.Contains(string(out), fmt.Sprintf(":%d", port))
+}
+
+// generatePHPSecurityConfig vhost'a ozel php.ini guvenlik ayarlarini olusturur
+func generatePHPSecurityConfig(documentRoot string) string {
+	return fmt.Sprintf(`; OpenSpeed Panel - PHP Guvenlik Ayarlari
+; Olusturulma: %s
+
+; === open_basedir - Sadece kendi dizinine ve /tmp'e erisim ===
+open_basedir = "%s:/tmp:/dev/urandom"
+
+; === Tehlikeli fonksiyonlari devre disi birak ===
+disable_functions = "exec,passthru,shell_exec,system,proc_open,popen,curl_exec,curl_multi_exec,parse_ini_file,show_source,phpinfo"
+
+; === Dosya yukleme limitleri ===
+upload_max_filesize = 64M
+post_max_size = 80M
+max_file_uploads = 20
+
+; === Bellek ve zaman limitleri ===
+memory_limit = 256M
+max_execution_time = 30
+max_input_time = 60
+max_input_vars = 3000
+
+; === Oturum guvenligi ===
+session.cookie_httponly = 1
+session.cookie_secure = 1
+session.cookie_samesite = "Lax"
+session.use_strict_mode = 1
+
+; === Hata gosterme (production) ===
+display_errors = Off
+display_startup_errors = Off
+log_errors = On
+error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+
+; === Uzaktan dosya erisimini kapat ===
+allow_url_fopen = On
+allow_url_include = Off
+
+; === OpCache ===
+opcache.enable = 1
+opcache.memory_consumption = 64
+opcache.max_accelerated_files = 10000
+`, time.Now().Format("2006-01-02 15:04:05"), documentRoot)
+}
+
+// GetPHPExtensions belirli PHP surumu icin yuklu extensions listesini dondurur
+func (c *Client) GetPHPExtensions(phpVersion string) []map[string]interface{} {
+	phpBin := fmt.Sprintf("/usr/local/lsws/lsphp%s/bin/lsphp", strings.ReplaceAll(phpVersion, ".", ""))
+	var extensions []map[string]interface{}
+
+	// lsphp -m ile modulleri listele
+	cmd := exec.Command(phpBin, "-m")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return extensions
+	}
+
+	// İlk satir "[PHP Modules]" sonrasi baslar
+	inModules := false
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "[PHP Modules]" {
+			inModules = true
+			continue
+		}
+		if line == "[Zend Modules]" || line == "" {
+			if inModules && line == "[Zend Modules]" {
+				continue
+			}
+			if inModules && line == "" && len(extensions) > 0 {
+				break
+			}
+			continue
+		}
+		if inModules && line != "" {
+			extensions = append(extensions, map[string]interface{}{
+				"name":    line,
+				"version": phpVersion,
+				"enabled": true,
+			})
+		}
+	}
+
+	return extensions
+}
+
+// GetAvailablePHPVersions kurulu PHP surumlerini dondurur
+func (c *Client) GetAvailablePHPVersions() []string {
+	var versions []string
+	for _, ver := range []string{"8.2", "8.3", "8.4"} {
+		phpBin := fmt.Sprintf("/usr/local/lsws/lsphp%s/bin/lsphp", strings.ReplaceAll(ver, ".", ""))
+		if _, err := os.Stat(phpBin); err == nil {
+			versions = append(versions, ver)
+		}
+	}
+	return versions
 }
 
 func extractPHPVersion(content string) string {

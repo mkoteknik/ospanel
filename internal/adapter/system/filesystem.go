@@ -10,8 +10,17 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+)
+
+var (
+	cpuMu       sync.Mutex
+	cpuPrevIdle uint64
+	cpuPrevTotal uint64
+	cpuPrevTime time.Time
+	cpuCache    float64
 )
 
 // EnsureDir bir dizinin var olduğundan emin olur, yoksa oluşturur
@@ -60,7 +69,95 @@ func CreateDocumentRoot(homeDir, domain string) (string, error) {
 		os.WriteFile(indexPath, []byte(indexContent), 0644)
 	}
 
+	// .htaccess güvenlik dosyası oluştur (OLS Apache uyumlu)
+	htaccessPath := filepath.Join(docRoot, ".htaccess")
+	if _, err := os.Stat(htaccessPath); os.IsNotExist(err) {
+		os.WriteFile(htaccessPath, []byte(GenerateHtaccess()), 0644)
+	}
+
 	return docRoot, nil
+}
+
+// GenerateHtaccess domain document root için güvenlik .htaccess içeriği
+func GenerateHtaccess() string {
+	return `# OpenSpeed Panel - Otomatik Guvenlik .htaccess
+# OLS tarafindan Apache uyumlu olarak islenir
+
+# === Dizin listelemeyi kapat ===
+Options -Indexes
+
+# === Hassas dosyalari engelle ===
+<FilesMatch "\.(htaccess|htpasswd|ini|phps|log|sh|bak|sql|tar|gz|zip)$">
+    Require all denied
+</FilesMatch>
+
+# === WordPress ozel: wp-config.php, xmlrpc.php koruma ===
+<FilesMatch "^(wp-config\.php|xmlrpc\.php|wp-login\.php)$">
+    Require all granted
+</FilesMatch>
+
+# === WordPress xmlrpc saldirilarini sinirla ===
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^xmlrpc\.php$ - [F,L]
+</IfModule>
+
+# === PHP guvenlik (Apache mod_php / OLS LSAPI) ===
+<IfModule php_module>
+    php_value open_basedir "%{DOCUMENT_ROOT}:/tmp:/dev/urandom"
+    php_value upload_max_filesize 64M
+    php_value post_max_size 80M
+    php_value max_execution_time 30
+    php_value max_input_time 60
+    php_value memory_limit 256M
+    php_flag display_errors Off
+    php_flag allow_url_include Off
+    php_flag session.cookie_httponly On
+    php_flag session.cookie_secure On
+</IfModule>
+
+# === Guvenlik header'lari ===
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
+
+# === Statik dosya cache ===
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpg "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType text/javascript "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType application/x-font-ttf "access plus 1 year"
+    ExpiresByType application/x-font-woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+</IfModule>
+
+# === Gzip sikistirma ===
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript
+    AddOutputFilterByType DEFLATE application/javascript application/json application/xml
+    AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+# === WordPress SEO URL (varsa) ===
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^index\.php$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.php [L]
+</IfModule>
+`
 }
 
 // GetHomeDir kullanıcının home dizinini döndürür
@@ -149,7 +246,7 @@ func GetSystemStats() map[string]interface{} {
 	}
 }
 
-// getCPUUsage /proc/stat'tan CPU kullanım yüzdesini okur
+// getCPUUsage /proc/stat'tan CPU kullanım yüzdesini okur — non-blocking, cache'li
 func getCPUUsage() float64 {
 	f, err := os.Open("/proc/stat")
 	if err != nil {
@@ -165,7 +262,6 @@ func getCPUUsage() float64 {
 			if len(fields) < 8 {
 				return 0
 			}
-			// cpu user nice system idle iowait irq softirq steal
 			user, _ := strconv.ParseUint(fields[1], 10, 64)
 			nice, _ := strconv.ParseUint(fields[2], 10, 64)
 			system, _ := strconv.ParseUint(fields[3], 10, 64)
@@ -177,54 +273,46 @@ func getCPUUsage() float64 {
 			if len(fields) > 8 {
 				steal, _ = strconv.ParseUint(fields[8], 10, 64)
 			}
-
 			idleTotal := idle + iowait
 			nonIdle := user + nice + system + irq + softirq + steal
 			total := idleTotal + nonIdle
 
-			if total == 0 {
-				return 0
+			cpuMu.Lock()
+			defer cpuMu.Unlock()
+
+			// İlk çağrı — cache yok, 0 dön ve state sakla
+			if cpuPrevTime.IsZero() {
+				cpuPrevIdle = idleTotal
+				cpuPrevTotal = total
+				cpuPrevTime = time.Now()
+				return cpuCache
 			}
 
-			// Kısa bir bekleme ve ikinci okuma ile anlık kullanım hesapla
-			time.Sleep(100 * time.Millisecond)
-
-			// Dosyayı başa sar ve ikinci okumayı yap
-			f.Seek(0, 0)
-			scanner2 := bufio.NewScanner(f)
-			for scanner2.Scan() {
-				line2 := scanner2.Text()
-				if strings.HasPrefix(line2, "cpu ") {
-					f2 := strings.Fields(line2)
-					if len(f2) < 8 {
-						break
-					}
-					u2, _ := strconv.ParseUint(f2[1], 10, 64)
-					n2, _ := strconv.ParseUint(f2[2], 10, 64)
-					s2, _ := strconv.ParseUint(f2[3], 10, 64)
-					id2, _ := strconv.ParseUint(f2[4], 10, 64)
-					iw2, _ := strconv.ParseUint(f2[5], 10, 64)
-					ir2, _ := strconv.ParseUint(f2[6], 10, 64)
-					si2, _ := strconv.ParseUint(f2[7], 10, 64)
-					st2 := uint64(0)
-					if len(f2) > 8 {
-						st2, _ = strconv.ParseUint(f2[8], 10, 64)
-					}
-
-					idle2 := id2 + iw2
-					nonIdle2 := u2 + n2 + s2 + ir2 + si2 + st2
-					total2 := idle2 + nonIdle2
-
-					totalDelta := total2 - total
-					idleDelta := idle2 - idleTotal
-
-					if totalDelta == 0 {
-						return 0
-					}
-					return math.Round((1.0-float64(idleDelta)/float64(totalDelta))*10000) / 100
-				}
+			// 500ms'den sık çağrılırsa cache dön (throttle)
+			if time.Since(cpuPrevTime) < 500*time.Millisecond {
+				return cpuCache
 			}
-			break
+
+			totalDelta := total - cpuPrevTotal
+			idleDelta := idleTotal - cpuPrevIdle
+
+			cpuPrevIdle = idleTotal
+			cpuPrevTotal = total
+			cpuPrevTime = time.Now()
+
+			if totalDelta == 0 {
+				return cpuCache
+			}
+			usage := math.Round((1.0-float64(idleDelta)/float64(totalDelta))*10000) / 100
+			// Clamp 0-100
+			if usage < 0 {
+				usage = 0
+			}
+			if usage > 100 {
+				usage = 100
+			}
+			cpuCache = usage
+			return usage
 		}
 	}
 	return 0

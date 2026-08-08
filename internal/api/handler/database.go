@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -10,8 +11,14 @@ import (
 	"github.com/mkoteknik/ospanel/internal/adapter/database"
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
 	"github.com/mkoteknik/ospanel/internal/model"
+	"github.com/mkoteknik/ospanel/internal/pkg/crypto"
 	"github.com/mkoteknik/ospanel/internal/pkg/logger"
 	"github.com/mkoteknik/ospanel/internal/store"
+)
+
+var (
+	dbNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,64}$`)
+	dbUserRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,32}$`)
 )
 
 // DatabaseHandler veritabanı yönetimi işlemleri
@@ -59,11 +66,31 @@ func (h *DatabaseHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.Charset = "utf8mb4"
 	}
 
+	if !dbNameRegex.MatchString(req.Name) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz veritabanı adı (3-64 karakter, harf/rakam/_)"})
+		return
+	}
+	if !dbUserRegex.MatchString(req.Username) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz kullanıcı adı (3-32 karakter, harf/rakam/_)"})
+		return
+	}
+	if len(req.Password) < 12 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Şifre en az 12 karakter olmalı"})
+		return
+	}
+
+	encPass, err := crypto.Encrypt(req.Password, "")
+	if err != nil {
+		h.log.Errorw("veritabani sifresi sifrelenemedi", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Şifre şifrelenemedi - master key eksik"})
+		return
+	}
+
 	db := &model.Database{
 		UserID:      userID,
 		Name:        req.Name,
 		Username:    req.Username,
-		PasswordEnc: req.Password, // Production'da şifrelenmeli
+		PasswordEnc: encPass,
 		Charset:     req.Charset,
 		Collation:   "utf8mb4_unicode_ci",
 		Status:      "active",

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/argon2"
 
 	"github.com/mkoteknik/ospanel/internal/api/middleware"
@@ -43,38 +44,49 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Kullanıcıyı bul
 	user, err := h.store.GetUserByUsername(r.Context(), req.Username)
 	if err != nil {
 		h.log.Errorw("login başarısız - kullanıcı bulunamadı", "username", req.Username)
+		// Timing attack mitigasyonu: dummy verify
+		_ = verifyPassword(req.Password, "ospanel$v1$00000000000000000000000000000000$0000000000000000000000000000000000000000000000000000000000000000")
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Geçersiz kullanıcı adı veya şifre"})
 		return
 	}
 
-	// Hesap durumu kontrolü
 	if user.Status != model.StatusActive {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Hesap aktif değil"})
 		return
 	}
 
-	// Kilitli hesap kontrolü
 	if user.LockedUntil != nil && time.Now().Before(*user.LockedUntil) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Hesap geçici olarak kilitlendi"})
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Hesap geçici olarak kilitlendi, lütfen daha sonra deneyin"})
 		return
 	}
+	// Kilit süresi dolduysa sıfırla
+	if user.LockedUntil != nil && time.Now().After(*user.LockedUntil) {
+		user.LoginAttempts = 0
+		user.LockedUntil = nil
+		_ = h.store.UpdateUser(r.Context(), user)
+	}
 
-	// Şifre doğrulama
 	if !verifyPassword(req.Password, user.PasswordHash) {
-		// Başarısız giriş denemesi
 		attempts := user.LoginAttempts + 1
-		h.store.UpdateLoginAttempts(r.Context(), user.ID, attempts)
-
+		_ = h.store.UpdateLoginAttempts(r.Context(), user.ID, attempts)
+		// Eşik aşıldıysa kilitle
+		if attempts >= 5 {
+			until := time.Now().Add(30 * time.Minute)
+			user.LockedUntil = &until
+			user.Status = model.StatusLocked
+			_ = h.store.UpdateUser(r.Context(), user)
+			h.log.Warnw("hesap kilitlendi - brute force", "username", req.Username, "attempt", attempts, "until", until)
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Çok fazla başarısız deneme, hesap 30 dakika kilitlendi"})
+			return
+		}
 		h.log.Warnw("login başarısız - şifre hatalı", "username", req.Username, "attempt", attempts)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Geçersiz kullanıcı adı veya şifre"})
 		return
 	}
 
-	// 2FA kontrolü
 	if user.TOTPEnabled {
 		if req.TOTPCode == "" {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "2FA kodu gerekli", "require_2fa": "true"})
@@ -87,7 +99,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Token üret
 	accessToken, refreshToken, expiresIn, err := generateTokens(user, h.jwtSecret)
 	if err != nil {
 		h.log.Errorw("token oluşturma hatası", "error", err)
@@ -95,14 +106,38 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Başarılı giriş kaydı
 	now := time.Now()
-	h.store.UpdateLoginAttempts(r.Context(), user.ID, 0)
+	_ = h.store.UpdateLoginAttempts(r.Context(), user.ID, 0)
 	user.LastLoginAt = &now
 	user.LastLoginIP = getClientIP(r)
-	h.store.UpdateUser(r.Context(), user)
+	// Başarılı girişte kilidi aç
+	user.LockedUntil = nil
+	if user.Status == model.StatusLocked {
+		user.Status = model.StatusActive
+	}
+	_ = h.store.UpdateUser(r.Context(), user)
 
 	h.log.Infow("login başarılı", "username", req.Username, "ip", getClientIP(r))
+
+	// httpOnly cookie de set et (FE memory + cookie dual)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   expiresIn,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Path:     "/api/v1/auth/refresh",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   7 * 24 * 3600,
+	})
 
 	writeJSON(w, http.StatusOK, model.LoginResponse{
 		AccessToken:  accessToken,
@@ -114,7 +149,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 // Logout çıkış işlemi
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	// JWT stateless olduğu için client tarafında token silinir
+	// Cookie temizle
+	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	// TODO: refresh token revoke (jti blacklist) - store'a eklenince aktif olacak
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Başarıyla çıkış yapıldı"})
 }
 
@@ -144,13 +182,23 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz istek"})
 		return
 	}
+	if req.RefreshToken == "" {
+		// Cookie fallback
+		if c, err := r.Cookie("refresh_token"); err == nil {
+			req.RefreshToken = c.Value
+		}
+	}
+	if req.RefreshToken == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Refresh token gerekli"})
+		return
+	}
 
 	token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
 		}
 		return []byte(h.jwtSecret), nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer("ospanel"), jwt.WithAudience("ospanel"))
 	if err != nil || !token.Valid {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Geçersiz refresh token"})
 		return
@@ -161,15 +209,47 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Geçersiz token"})
 		return
 	}
+	if typ, ok := claims["type"].(string); !ok || typ != "refresh" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Geçersiz token tipi"})
+		return
+	}
 
-	userID := int64(claims["user_id"].(float64))
+	uidFloat, ok := claims["user_id"].(float64)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Geçersiz token"})
+		return
+	}
+	userID := int64(uidFloat)
 	user, err := h.store.GetUser(r.Context(), userID)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Kullanıcı bulunamadı"})
 		return
 	}
+	if user.Status != model.StatusActive {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Hesap aktif değil"})
+		return
+	}
 
 	accessToken, refreshToken, expiresIn, _ := generateTokens(user, h.jwtSecret)
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   expiresIn,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Path:     "/api/v1/auth/refresh",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   7 * 24 * 3600,
+	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"access_token":  accessToken,
@@ -187,6 +267,11 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validatePasswordStrength(req.NewPassword); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
 	user, err := h.store.GetUser(r.Context(), userID)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Kullanıcı bulunamadı"})
@@ -200,40 +285,47 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	hashed, _ := hashPassword(req.NewPassword)
 	user.PasswordHash = hashed
-	h.store.UpdateUser(r.Context(), user)
+	_ = h.store.UpdateUser(r.Context(), user)
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Şifre başarıyla değiştirildi"})
+	// Şifre değişiminde tüm oturumları geçersiz kılmak için cookie temizle
+	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Şifre başarıyla değiştirildi, lütfen tekrar giriş yapın"})
 }
 
-// Setup2FA 2FA kurulumu
+// Setup2FA 2FA kurulumu (deprecated, TOTPHandler kullanın)
 func (h *AuthHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
-	userID, _ := middleware.GetUserID(r.Context())
-	user, err := h.store.GetUser(r.Context(), userID)
-	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Kullanıcı bulunamadı"})
-		return
-	}
-
-	var req struct {
-		Enable bool   `json:"enable"`
-		Code   string `json:"code,omitempty"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
-
-	if req.Enable {
-		// TOTP kurulumu (gelecek)
-		user.TOTPEnabled = true
-		user.TOTPSecret = "TODO-generate-secret"
-	} else {
-		user.TOTPEnabled = false
-		user.TOTPSecret = ""
-	}
-
-	h.store.UpdateUser(r.Context(), user)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"totp_enabled": user.TOTPEnabled,
-	})
+	writeJSON(w, http.StatusGone, map[string]string{"error": "Bu endpoint kaldırıldı, /api/v1/2fa/* kullanın"})
 }
+
+func validatePasswordStrength(pw string) error {
+	if len(pw) < 12 {
+		return &passErr{"Şifre en az 12 karakter olmalı"}
+	}
+	if len(pw) > 128 {
+		return &passErr{"Şifre en fazla 128 karakter olabilir"}
+	}
+	var hasUpper, hasLower, hasDigit bool
+	for _, c := range pw {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit {
+		return &passErr{"Şifre en az bir büyük harf, bir küçük harf ve bir rakam içermeli"}
+	}
+	return nil
+}
+
+type passErr struct{ msg string }
+
+func (e *passErr) Error() string { return e.msg }
 
 // hashPassword Argon2id ile şifre hashler, format: ospanel$v1$<hex salt>$<hex hash>
 func hashPassword(password string) (string, error) {
@@ -241,11 +333,12 @@ func hashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
+	// OWASP önerisi: time=3, memory=64MB, threads=4
+	hash := argon2.IDKey([]byte(password), salt, 3, 64*1024, 4, 32)
 	return "ospanel$v1$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(hash), nil
 }
 
-// verifyPassword hashlenmiş şifreyi doğrular
+// verifyPassword hashlenmiş şifreyi doğrular — v1 (time=3) ve legacy time=1 uyumlu
 func verifyPassword(password, encoded string) bool {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 4 || parts[0] != "ospanel" || parts[1] != "v1" {
@@ -259,21 +352,30 @@ func verifyPassword(password, encoded string) bool {
 	if err != nil {
 		return false
 	}
-	computed := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
-	return subtle.ConstantTimeCompare(computed, expectedHash) == 1
+	for _, iter := range []uint32{3, 1} {
+		computed := argon2.IDKey([]byte(password), salt, iter, 64*1024, 4, 32)
+		if subtle.ConstantTimeCompare(computed, expectedHash) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // generateTokens JWT token çifti oluşturur
 func generateTokens(user *model.User, secret string) (string, string, int, error) {
 	accessExpiry := 15 * time.Minute
 	refreshExpiry := 7 * 24 * time.Hour
+	now := time.Now()
 
 	accessClaims := jwt.MapClaims{
 		"user_id":  user.ID,
 		"username": user.Username,
 		"role":     string(user.Role),
-		"exp":      time.Now().Add(accessExpiry).Unix(),
-		"iat":      time.Now().Unix(),
+		"exp":      now.Add(accessExpiry).Unix(),
+		"iat":      now.Unix(),
+		"iss":      "ospanel",
+		"aud":      "ospanel",
+		"jti":      uuid.NewString(),
 		"type":     "access",
 	}
 
@@ -284,8 +386,11 @@ func generateTokens(user *model.User, secret string) (string, string, int, error
 
 	refreshClaims := jwt.MapClaims{
 		"user_id": user.ID,
-		"exp":     time.Now().Add(refreshExpiry).Unix(),
-		"iat":     time.Now().Unix(),
+		"exp":     now.Add(refreshExpiry).Unix(),
+		"iat":     now.Unix(),
+		"iss":     "ospanel",
+		"aud":      "ospanel",
+		"jti":      uuid.NewString(),
 		"type":    "refresh",
 	}
 
@@ -306,6 +411,3 @@ func sanitizeUser(user *model.User) *model.User {
 	u.LockedUntil = nil
 	return &u
 }
-
-
-

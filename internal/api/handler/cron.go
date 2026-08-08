@@ -34,7 +34,7 @@ func (h *CronHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"jobs": jobs, "total": len(jobs)})
 }
 
-// Add cron ekler
+// Add cron ekler (admin-only, valide edilmiş)
 func (h *CronHandler) Add(w http.ResponseWriter, r *http.Request) {
 	var job CronJob
 	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
@@ -42,26 +42,72 @@ func (h *CronHandler) Add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cronExpr := fmt.Sprintf("%s %s %s %s %s %s", job.Minute, job.Hour, job.Day, job.Month, job.Weekday, job.Command)
+	// Zorunlu alan validasyonu
+	if job.Command == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Komut gerekli"})
+		return
+	}
+
+	// Cron zaman alanları varsayılan değerler
+	if job.Minute == "" { job.Minute = "*" }
+	if job.Hour == "" { job.Hour = "*" }
+	if job.Day == "" { job.Day = "*" }
+	if job.Month == "" { job.Month = "*" }
+	if job.Weekday == "" { job.Weekday = "*" }
+	if job.User == "" { job.User = "root" }
+
+	// Cron zaman alanı validasyonu (sadece *, rakam, /, -, , karakterlerine izin ver)
+	if !isValidCronField(job.Minute) || !isValidCronField(job.Hour) ||
+		!isValidCronField(job.Day) || !isValidCronField(job.Month) ||
+		!isValidCronField(job.Weekday) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz cron zaman formatı"})
+		return
+	}
+
+	// Kullanıcı adı validasyonu
+	if !isValidUsername(job.User) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Geçersiz kullanıcı adı"})
+		return
+	}
+
+	// Komut içinde yeni satır karakteri engelle (cron injection)
+	if strings.Contains(job.Command, "\n") || strings.Contains(job.Command, "\r") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Komut geçersiz karakter içeriyor"})
+		return
+	}
+	job.Command = strings.TrimSpace(job.Command)
+	if len(job.Command) > 1000 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Komut çok uzun (max 1000 karakter)"})
+		return
+	}
+
+	// cron.d formatı: minute hour day month weekday USER command
+	cronExpr := fmt.Sprintf("%s %s %s %s %s %s %s",
+		job.Minute, job.Hour, job.Day, job.Month, job.Weekday, job.User, job.Command)
 
 	if err := h.writeCron(cronExpr); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	h.log.Infow("cron eklendi", "expr", cronExpr)
+	h.log.Infow("cron eklendi", "user", job.User, "command", job.Command)
 	writeJSON(w, http.StatusCreated, map[string]string{"message": "Cron eklendi", "expression": cronExpr})
 }
 
 // Delete cron siler
 func (h *CronHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	command := r.URL.Query().Get("command")
+	if command == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Komut gerekli"})
+		return
+	}
+
 	jobs := h.getCronJobs("")
 	var newJobs []string
 	for _, j := range jobs {
-		if !strings.Contains(j.Command, command) && j.Command != command {
-			newJobs = append(newJobs, fmt.Sprintf("%s %s %s %s %s %s",
-				j.Minute, j.Hour, j.Day, j.Month, j.Weekday, j.Command))
+		if j.Command != command {
+			newJobs = append(newJobs, fmt.Sprintf("%s %s %s %s %s %s %s",
+				j.Minute, j.Hour, j.Day, j.Month, j.Weekday, j.User, j.Command))
 		}
 	}
 
@@ -87,11 +133,12 @@ func (h *CronHandler) getCronJobs(user string) []CronJob {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") { continue }
 			parts := strings.Fields(line)
-			if len(parts) < 6 { continue }
+			// cron.d formatı: minute hour day month weekday USER command [args...]
+			if len(parts) < 7 { continue }
 			jobs = append(jobs, CronJob{
 				Minute: parts[0], Hour: parts[1], Day: parts[2],
-				Month: parts[3], Weekday: parts[4],
-				Command: strings.Join(parts[5:], " "),
+				Month: parts[3], Weekday: parts[4], User: parts[5],
+				Command: strings.Join(parts[6:], " "),
 			})
 		}
 	}
@@ -123,4 +170,31 @@ func (h *CronHandler) writeCron(expr string) error {
 	defer f.Close()
 	_, err = f.WriteString(expr + "\n")
 	return err
+}
+
+// isValidCronField cron zaman alanlarını valide eder
+func isValidCronField(field string) bool {
+	if field == "" {
+		return false
+	}
+	// İzin verilen: * , - / 0-9
+	for _, c := range field {
+		if !((c >= '0' && c <= '9') || c == '*' || c == ',' || c == '-' || c == '/') {
+			return false
+		}
+	}
+	return len(field) <= 20
+}
+
+// isValidUsername basit kullanıcı adı validasyonu
+func isValidUsername(user string) bool {
+	if len(user) == 0 || len(user) > 32 {
+		return false
+	}
+	for _, c := range user {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }

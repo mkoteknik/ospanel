@@ -20,10 +20,16 @@ type Store interface {
 	GetUserByUsername(ctx context.Context, username string) (*model.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
 	ListUsers(ctx context.Context) ([]*model.User, error)
+	ListUsersByReseller(ctx context.Context, resellerID int64) ([]*model.User, error)
 	UpdateUser(ctx context.Context, user *model.User) error
 	DeleteUser(ctx context.Context, id int64) error
 	UpdateLoginAttempts(ctx context.Context, id int64, attempts int) error
 	LockUser(ctx context.Context, id int64, until interface{}) error
+
+	// Quota
+	CountUsersByReseller(ctx context.Context, resellerID int64) (int, error)
+	CountDomainsByUser(ctx context.Context, userID int64) (int, error)
+	CountDatabasesByUser(ctx context.Context, userID int64) (int, error)
 
 	// Domain
 	CreateDomain(ctx context.Context, domain *model.Domain) error
@@ -54,6 +60,11 @@ type Store interface {
 	DeleteSSLCert(ctx context.Context, id int64) error
 	ListExpiringCerts(ctx context.Context, days int) ([]*model.SSLCertificate, error)
 
+	// Alias (Parked Domain)
+	CreateAlias(ctx context.Context, alias *model.Alias) error
+	ListAliasesByDomain(ctx context.Context, domainID int64) ([]*model.Alias, error)
+	DeleteAlias(ctx context.Context, id int64) error
+
 	// DNS
 	CreateDNSRecord(ctx context.Context, record *model.DNSRecord) error
 	GetDNSRecord(ctx context.Context, id int64) (*model.DNSRecord, error)
@@ -71,6 +82,14 @@ type Store interface {
 	// Audit
 	CreateAuditLog(ctx context.Context, log *model.AuditLog) error
 	ListAuditLogs(ctx context.Context, limit, offset int) ([]*model.AuditLog, error)
+
+	// Packages
+	ListPackages(ctx context.Context) ([]*model.HostingPackage, error)
+	GetPackage(ctx context.Context, id int64) (*model.HostingPackage, error)
+	CreatePackage(ctx context.Context, p *model.HostingPackage) error
+	UpdatePackage(ctx context.Context, p *model.HostingPackage) error
+	DeletePackage(ctx context.Context, id int64) error
+	UpdateUserPackage(ctx context.Context, userID, packageID int64) error
 
 	// Settings
 	GetSetting(ctx context.Context, key string) (*model.Setting, error)
